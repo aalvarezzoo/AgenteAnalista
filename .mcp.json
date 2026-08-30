@@ -7,6 +7,10 @@
     "gestion-backups": {
       "command": "dotnet",
       "args": ["McpServers/GestionBackupsMcp/bin/Debug/net10.0/GestionBackupsMcp.dll"]
+    },
+    "sql-diagnostico": {
+      "command": "dotnet",
+      "args": ["McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll"]
     }
   }
 }

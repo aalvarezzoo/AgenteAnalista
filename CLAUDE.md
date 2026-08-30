@@ -167,14 +167,41 @@ en vez de ir a ciegas por prueba y error.
 **Importante:** revisarlo solo cuando la persona lo pida o lo sugiera explícitamente — no ir por
 iniciativa propia sin que se pida.
 
+**Regla dura — SOLO LECTURA:** el código fuente de Dragonfish (hoy en `C:\IADragon2028`, pero la
+regla es sobre el código en sí, no sobre esa ruta puntual — si en el futuro está en otro lado o hay
+una copia/checkout en otra carpeta, aplica igual) se usa exclusivamente para *leer/entender* como
+apoyo al análisis de incidentes. **Nunca modificar ni eliminar nada que sea código fuente de
+Dragonfish**, sea cual sea su ubicación, salvo que la persona cambie explícitamente esta regla en
+una conversación futura. Esto aplica siempre, en cualquier PC donde se use AgenteAnalista — no es
+una preferencia de sesión.
+
 ---
 
 # MCP servers (`McpServers/`) — primera vez que se levantan en una máquina nueva
 
-El repo trae tres servidores MCP: `ZlApiMcp`, `DragonfishApiMcp` y `GestionBackupsMcp`. Los dos
-últimos están registrados en `.mcp.json`, que Claude Code levanta solo al abrir el proyecto.
-`DragonfishApiMcp` necesita estos pasos la primera vez en una máquina que nunca los corrió — si no,
-falla al arrancar (a propósito, con un error claro en vez de fallar en silencio):
+El repo trae cuatro servidores MCP: `ZlApiMcp`, `DragonfishApiMcp`, `GestionBackupsMcp` y
+`SqlDiagnosticoMcp`. Los últimos tres están registrados en `.mcp.json`, que Claude Code levanta solo
+al abrir el proyecto. `DragonfishApiMcp` y `SqlDiagnosticoMcp` necesitan estos pasos la primera vez
+en una máquina que nunca los corrió — si no, fallan al arrancar (a propósito, con un error claro en
+vez de fallar en silencio):
+
+### Gotcha del SDK (`ModelContextProtocol` paquete NuGet): las excepciones .NET comunes no llegan al modelo
+
+Confirmado probando `SqlDiagnosticoMcp` end-to-end: si una tool tira `InvalidOperationException` (o
+cualquier excepción que no sea `ModelContextProtocol.McpException`), el SDK la sanitiza antes de
+devolverla — el modelo recibe un mensaje genérico ("An error occurred invoking 'x'.") sin el texto
+descriptivo real, aunque el código haya escrito un mensaje claro. Confirmado revisando el XML de
+documentación del paquete (`ModelContextProtocol.Core.xml`): `McpException` es, a propósito, el
+único tipo cuyo `.Message` se propaga tal cual al cliente MCP — para cualquier otra excepción es
+comportamiento de diseño del SDK, no un bug del lado nuestro.
+
+**Consecuencia práctica:** cualquier tool nueva (en este o futuros MCP de este repo) que tire una
+excepción esperando que el mensaje llegue al modelo tiene que tirar `McpException`, no
+`InvalidOperationException` u otra genérica — o envolver el cuerpo del método en un `try/catch` que
+reconvierta cualquier excepción capturada en `McpException(ex.Message, ex)` (patrón `Envolver` en
+`SqlDiagnosticoTools.cs`). `DragonfishApiMcp` y `GestionBackupsMcp` tiran `InvalidOperationException`
+en varios lugares (`ResolverPerfil`, `ResolverInstanciaSql`, etc.) — probablemente tengan el mismo
+problema, pero no se tocaron todavía porque no se pidió explícitamente arreglarlos.
 
 1. **Generar tu propia clave de cifrado** (no se comparte entre integrantes del equipo):
    ```
@@ -429,3 +456,88 @@ Este flujo completo (chequeo → alta → restore) se probó de punta a punta co
 (Noxion/NCENTRO, backup en carpeta con otro backup de `ZOOLOGICMASTER` al lado) y funcionó: detectó
 que faltaba, dio de alta con confirmación, restauró solo la base pedida, y en una restauración
 posterior de la misma base detectó que ya existía y restauró directo sin volver a preguntar.
+
+---
+
+## SqlDiagnosticoMcp — diagnóstico de SQL Server de solo lectura
+
+Servidor MCP registrado como `sql-diagnostico`. Da herramientas chicas y específicas para explorar
+el esquema de una base Dragonfish y consultar datos durante el análisis de un incidente, **sin**
+exponer una única `execute_sql` genérica ni ningún camino de escritura. La idea no es que este MCP
+"resuelva" el incidente — es darle a Claude los ojos para investigar (ubicar tablas relacionadas a
+un término, ver columnas/FKs/índices reales, leer la definición de la vista/SP que alimenta un
+reporte SSRS, consultar filas, ubicar un valor puntual, comparar el esquema entre dos bases) en vez
+de tener que indicarle de antemano "hacé un SELECT de tabla X JOIN tabla Y".
+
+**No hace falta memorizar de antemano qué guarda cada tabla/columna de Dragonfish** para que este
+MCP sea útil — de hecho no conviene: el propio código fuente de Dragonfish (`C:\IADragon2028`) no
+documenta el significado de negocio de sus columnas (solo metadata estructural: tipo, longitud,
+PK/identity), y son ~1800+ tablas solo en el esquema de sucursal. El conocimiento de negocio real
+(qué es `FACTTIPO`, qué campos de `COMPROBANTEV` no se tocan, etc.) se sigue construyendo incidente
+a incidente en este mismo archivo — este MCP da las herramientas de exploración en vivo
+(`buscar_en_esquema`, `describir_tabla`) para no depender de tenerlo memorizado de antemano.
+
+### Modelo de seguridad — dos capas, la real es la primera
+
+1. **Login SQL dedicado de solo lectura.** Cada perfil se conecta con **SQL Authentication** (nunca
+   Integrated Security con la cuenta Windows del analista, nunca `sa`) usando un login que en SQL
+   Server **solo tiene el rol `db_datareader`** en las bases que se vayan a consultar. Esto es lo
+   que realmente impide escribir algo — no el código de este MCP. Crear el login así (ejecutar
+   contra la instancia, ajustando el nombre de base por cada una que se quiera habilitar):
+   ```sql
+   CREATE LOGIN mh_sql_readonly WITH PASSWORD = '<password-fuerte>', CHECK_POLICY = ON;
+
+   USE DRAGONFISH_DEMO;
+   CREATE USER mh_sql_readonly FOR LOGIN mh_sql_readonly;
+   ALTER ROLE db_datareader ADD MEMBER mh_sql_readonly;
+   -- Repetir el bloque USE/CREATE USER/ALTER ROLE por cada base adicional a habilitar.
+   ```
+2. **Validación en el propio MCP (`ConsultaSqlValidator`).** `consultar_sql` rechaza cualquier texto
+   que no empiece con `SELECT`/`WITH`, que tenga más de un statement, o que contenga palabras como
+   `INSERT/UPDATE/DELETE/DROP/ALTER/EXEC/sp_/xp_/...`. Es defensa en profundidad — da un error claro
+   antes de llegar a SQL Server — pero nunca el único mecanismo de protección.
+
+No expone backup/restore (eso ya lo hace `GestionBackupsMcp`, con sus propios privilegios) ni
+ninguna tool de escritura. Si en el futuro hiciera falta, tendría que ser una tool nueva y
+explícita — nunca una ampliación de `consultar_sql`.
+
+### Configurar un perfil
+
+Un perfil es una instancia de SQL Server + las credenciales del login de solo lectura. Igual que
+`DragonfishApiMcp`, se guarda cifrado en `appsettings.secrets.enc` (compartido por todos los MCPs
+del repo — ver la sección de setup general de MCP servers más arriba para generar la clave la
+primera vez en una máquina nueva).
+
+```
+dotnet McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll agregar-perfil <perfil> <instancia> <usuario> <password>
+```
+
+Corrido desde la raíz del repo, ej.:
+```
+dotnet McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll agregar-perfil TEST .\SQLEXPRESS2022 mh_sql_readonly <password>
+```
+
+**Nunca mostrar el password en la respuesta** — confirmar solo perfil, instancia y usuario.
+
+**Mismo gotcha de rebuild que `DragonfishApiMcp` (ver Paso 5 de esa sección más arriba):**
+`agregar-perfil` escribe en el `appsettings.secrets.enc` de la raíz, pero el MCP que ya está
+corriendo lee la copia en su propio `bin/` — hay que matar cualquier proceso
+`SqlDiagnosticoMcp.dll` huérfano, correr `dotnet build McpServers/SqlDiagnosticoMcp` para que se
+vuelva a copiar, y recién ahí recargar la ventana de VS Code. Si se prueba el perfil sin este paso,
+el error de conexión no dice nada real sobre si el perfil está bien o mal.
+
+### Tools
+
+| Tool | Qué hace |
+|------|----------|
+| `listar_perfiles` | Lista los perfiles configurados (nunca expone credenciales). |
+| `listar_bases` | Bases visibles para el login del perfil, con estado (ONLINE/OFFLINE/etc). |
+| `buscar_en_esquema` | Busca tablas/vistas/procedimientos/columnas por palabra clave en el nombre — punto de partida para no tener que indicar la tabla de antemano. |
+| `describir_tabla` | Columnas (tipo/longitud/nullable/identity), clave primaria, FKs entrantes y salientes, e índices de una tabla. Resuelve el esquema solo si no se indica (falla claro si es ambiguo). |
+| `obtener_definicion_objeto` | Código SQL real de una vista/SP/función/trigger (`OBJECT_DEFINITION`) — clave cuando un reporte SSRS llama a un SP donde vive el cálculo real. |
+| `consultar_sql` | `SELECT`/`WITH` de solo lectura, con límite de filas y timeout configurables (defaults 200 filas / 5 segundos). |
+| `buscar_valor` | Busca un valor exacto (CUIT, nro. de comprobante, etc.) en columnas de texto/numéricas compatibles de tablas candidatas — **requiere pasar la lista de tablas** (usar `buscar_en_esquema` primero); no hace barrido ciego de toda la base. |
+| `comparar_esquemas` | Diferencias de tablas/columnas entre dos bases de la misma instancia — para el caso típico "funciona en Demo, no en la base del cliente". |
+
+Todas las tools que apuntan a datos reciben `perfil` y `baseDeDatos` como primeros parámetros
+(salvo `listar_perfiles`, que no necesita ninguno, y `listar_bases`, que solo necesita `perfil`).

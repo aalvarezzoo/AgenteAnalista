@@ -85,8 +85,8 @@ public static class AgregarPerfilTool
 
     private static void GuardarPerfil(string perfil, string idCliente, string token, string baseUrl, string baseDeDatos)
     {
-        var keyHex = Environment.GetEnvironmentVariable("PANELMH_SECRET_KEY")
-            ?? throw new InvalidOperationException("PANELMH_SECRET_KEY no está definida.");
+        var keyHex = Environment.GetEnvironmentVariable("AGENTEANALISTA_SECRET_KEY")
+            ?? throw new InvalidOperationException("AGENTEANALISTA_SECRET_KEY no está definida.");
 
         const string encPath  = "appsettings.secrets.enc";
         const string jsonPath = "appsettings.secrets.json";

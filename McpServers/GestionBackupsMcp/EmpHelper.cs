@@ -1,4 +1,5 @@
 using Microsoft.Data.SqlClient;
+using ModelContextProtocol;
 
 namespace GestionBackupsMcp;
 
@@ -45,7 +46,7 @@ public static class EmpHelper
         using var cmd = new SqlCommand(sql, conn);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read())
-            throw new InvalidOperationException("No se encontró ninguna tabla 'Emp' en DRAGONFISH_ZOOLOGICMASTER.");
+            throw new McpException("No se encontró ninguna tabla 'Emp' en DRAGONFISH_ZOOLOGICMASTER.");
 
         return reader.GetString(0);
     }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using ModelContextProtocol;
 
 namespace DragonfishApiMcp;
 
@@ -20,7 +21,7 @@ public sealed class SwaggerCatalog(HttpClient http)
     private async Task<JsonNode> LoadAsync(string baseUrl)
     {
         var swagger = await http.GetFromJsonAsync<JsonNode>($"{baseUrl.TrimEnd('/')}/swagger.json")
-            ?? throw new InvalidOperationException($"swagger.json vacío en {baseUrl}");
+            ?? throw new McpException($"swagger.json vacío en {baseUrl}");
         return swagger;
     }
 

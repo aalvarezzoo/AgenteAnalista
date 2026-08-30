@@ -210,36 +210,51 @@ public sealed class GestionBackupsTools
         psi.ArgumentList.Add($"-bdr{nombreBase}");
         psi.ArgumentList.Add("-ejecutormantenimiento");
 
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException("No se pudo iniciar ZooBkp.exe.");
-        proc.WaitForExit();
+        // Process.Start puede tirar (Win32Exception por permisos, etc.) además de devolver null —
+        // se captura acá y se devuelve como texto, igual que el resto de este método, en vez de
+        // dejarlo escapar como excepción cruda (el SDK de MCP sanitiza cualquier excepción que no
+        // sea McpException a un mensaje genérico antes de que el modelo la vea).
+        Process proc;
+        try
+        {
+            proc = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start devolvió null.");
+        }
+        catch (Exception ex)
+        {
+            return $"✗ {nombreArchivo}: no se pudo iniciar ZooBkp.exe. Detalle: {ex.Message}";
+        }
 
-        var logNuevo = LeerLogNuevo(posicionPrevia);
+        using (proc)
+        {
+            proc.WaitForExit();
 
-        // Frase textual y específica de ZooBkp para el resultado FINAL del proceso — no alcanza
-        // con buscar "con éxito" suelto: pasos intermedios ("herramientas exportadas con éxito")
-        // pueden contenerlo aunque el proceso termine mal. Ya nos pasó: una restauración con un
-        // error real de ADN Implant quedó marcada como éxito por este motivo.
-        var huboExito = logNuevo.Contains("finalizado con éxito", StringComparison.OrdinalIgnoreCase);
-        var huboError = logNuevo.Contains("finalizado con errores", StringComparison.OrdinalIgnoreCase)
-            || logNuevo.Contains("retorno erróneo", StringComparison.OrdinalIgnoreCase);
-        var exito = proc.ExitCode == 0 && huboExito && !huboError;
+            var logNuevo = LeerLogNuevo(posicionPrevia);
 
-        // ZooBkp puede reportar "éxito" sin haber restaurado nada de verdad si la base no está
-        // registrada en esta instalación (no crea bases nuevas de la nada) — el paso real de
-        // restauración ("Invocando al componente SQLDmoWrapper...") nunca llega a ejecutarse.
-        // Nos pasó con una base inexistente: quedó "success" siendo en realidad un no-op.
-        var huboRestauracionReal = logNuevo.Contains("Invocando al componente SQLDmoWrapper", StringComparison.OrdinalIgnoreCase);
+            // Frase textual y específica de ZooBkp para el resultado FINAL del proceso — no alcanza
+            // con buscar "con éxito" suelto: pasos intermedios ("herramientas exportadas con éxito")
+            // pueden contenerlo aunque el proceso termine mal. Ya nos pasó: una restauración con un
+            // error real de ADN Implant quedó marcada como éxito por este motivo.
+            var huboExito = logNuevo.Contains("finalizado con éxito", StringComparison.OrdinalIgnoreCase);
+            var huboError = logNuevo.Contains("finalizado con errores", StringComparison.OrdinalIgnoreCase)
+                || logNuevo.Contains("retorno erróneo", StringComparison.OrdinalIgnoreCase);
+            var exito = proc.ExitCode == 0 && huboExito && !huboError;
 
-        if (exito && !huboRestauracionReal)
-            return $"⚠ {nombreArchivo} → {nombreBase}: ZooBkp reportó éxito, pero no se detectó que haya restaurado datos de verdad — probablemente '{nombreBase}' no está registrada en esta instalación de Dragonfish (no crea bases nuevas). Revisar antes de asumir que quedó restaurada.";
+            // ZooBkp puede reportar "éxito" sin haber restaurado nada de verdad si la base no está
+            // registrada en esta instalación (no crea bases nuevas de la nada) — el paso real de
+            // restauración ("Invocando al componente SQLDmoWrapper...") nunca llega a ejecutarse.
+            // Nos pasó con una base inexistente: quedó "success" siendo en realidad un no-op.
+            var huboRestauracionReal = logNuevo.Contains("Invocando al componente SQLDmoWrapper", StringComparison.OrdinalIgnoreCase);
 
-        var estado = exito ? "✓" : "✗";
-        var detalle = exito
-            ? "restaurada con éxito"
-            : $"código de salida {proc.ExitCode}, revisar log — {(logNuevo.Length == 0 ? "no se pudo leer el log nuevo" : ResumenLog(logNuevo))}";
+            if (exito && !huboRestauracionReal)
+                return $"⚠ {nombreArchivo} → {nombreBase}: ZooBkp reportó éxito, pero no se detectó que haya restaurado datos de verdad — probablemente '{nombreBase}' no está registrada en esta instalación de Dragonfish (no crea bases nuevas). Revisar antes de asumir que quedó restaurada.";
 
-        return $"{estado} {nombreArchivo} → {nombreBase}: {detalle}";
+            var estado = exito ? "✓" : "✗";
+            var detalle = exito
+                ? "restaurada con éxito"
+                : $"código de salida {proc.ExitCode}, revisar log — {(logNuevo.Length == 0 ? "no se pudo leer el log nuevo" : ResumenLog(logNuevo))}";
+
+            return $"{estado} {nombreArchivo} → {nombreBase}: {detalle}";
+        }
     }
 
     private static string LeerLogNuevo(long posicionPrevia)
