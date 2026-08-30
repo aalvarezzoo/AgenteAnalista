@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GestionBackupsMcp</RootNamespace>
+    <!-- Registro de Windows (ubicar la instalación de Dragonfish) y ZooBkp.exe son Windows-only;
+         CA1416 no se silencia solo con SupportedOSPlatform en un TFM sin sufijo de OS. -->
+    <SupportedOSPlatform>windows</SupportedOSPlatform>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+  </ItemGroup>
+
+  <!-- No referencia a PanelMH.Web ni a secretos: ZooBkp.exe no necesita credenciales,
+       corre local contra la instalación de Dragonfish de esta misma máquina. Tanto la carpeta de
+       instalación de Dragonfish como la instancia SQL a usar se resuelven solas (registro de
+       Windows y dataconfig.ini respectivamente) — no se guarda ninguna credencial ni ruta/instancia
+       por defecto, porque varían por máquina. -->
+</Project>

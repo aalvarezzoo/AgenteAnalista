@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "dragonfish-api": {
+      "command": "dotnet",
+      "args": ["McpServers/DragonfishApiMcp/bin/Debug/net10.0/DragonfishApiMcp.dll"]
+    },
+    "gestion-backups": {
+      "command": "dotnet",
+      "args": ["McpServers/GestionBackupsMcp/bin/Debug/net10.0/GestionBackupsMcp.dll"]
+    }
+  }
+}

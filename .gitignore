@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.swp
+
+## Secretos — cada integrante genera y cifra los suyos (ver CLAUDE.md)
+appsettings.*.json
+appsettings.secrets.enc
+
+## Scratch files
+Untitled-*.jsonc
+Untitled-*.json
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Build logs sueltos
+*.build.log

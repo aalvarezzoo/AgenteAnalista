@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DragonfishApiMcp</RootNamespace>
+    <!-- Microsoft.Data.SqlClient (agregar-perfil) no soporta Invariant Globalization Mode. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <!-- Antes venía transitivamente por la ProjectReference a PanelMH.Web (proyecto Web SDK). -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <!-- Solo para el comando "agregar-perfil" (busca host/puerto en DRAGONFISH_ZOOLOGICMASTER). -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Cifrado de secretos propio de AgenteAnalista (ver Shared/Secrets) — no hay referencia
+         cruzada a ningún otro repo. No reusa modelos de negocio: la API de Dragonfish (607
+         endpoints) se recorre dinámicamente contra el swagger.json que sirve en vivo cada
+         instalación, no con POCOs tipados a mano. -->
+    <ProjectReference Include="..\..\Shared\Secrets\AgenteAnalista.Secrets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- appsettings.secrets.enc vive en la raíz del repo (un solo archivo para todos los MCPs
+         que necesiten secretos) — se copia al bin de salida de cada uno que lo declare así.
+         Condition="Exists(...)" a propósito: la primera vez que se compila, antes de correr
+         el comando "encrypt", el archivo todavía no existe — sin la condición, MSBuild aborta
+         el build entero al no encontrar qué copiar, y los comandos "encrypt"/"generate-key"
+         nunca llegarían a ejecutarse. -->
+    <Content Include="..\..\appsettings.secrets.enc" CopyToOutputDirectory="PreserveNewest" Link="appsettings.secrets.enc" Condition="Exists('..\..\appsettings.secrets.enc')" />
+  </ItemGroup>
+</Project>

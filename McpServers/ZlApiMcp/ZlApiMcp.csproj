@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZlApiMcp</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <!-- Antes venía transitivamente por la ProjectReference a PanelMH.Web (proyecto Web SDK). -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ZlApiClient y los modelos (ZlTarea/ZlIncidente/ZlComprobanteCierre/ZlApiConfig/ZlCarga)
+         son copia propia de este repo (ver el resto de los .cs de esta carpeta) — ya no
+         referencian PanelMasterHelp. Cifrado de secretos propio (ver Shared/Secrets). -->
+    <ProjectReference Include="..\..\Shared\Secrets\AgenteAnalista.Secrets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- appsettings.secrets.enc vive en la raíz del repo — ver el mismo comentario en
+         DragonfishApiMcp.csproj sobre por qué la condición es necesaria. -->
+    <Content Include="..\..\appsettings.secrets.enc" CopyToOutputDirectory="PreserveNewest" Link="appsettings.secrets.enc" Condition="Exists('..\..\appsettings.secrets.enc')" />
+  </ItemGroup>
+</Project>
