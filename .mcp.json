@@ -11,6 +11,10 @@
     "sql-diagnostico": {
       "command": "dotnet",
       "args": ["McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll"]
+    },
+    "znube-ecommerce": {
+      "command": "dotnet",
+      "args": ["McpServers/ZNubeEcommerceMcp/bin/Debug/net10.0/ZNubeEcommerceMcp.dll"]
     }
   }
 }

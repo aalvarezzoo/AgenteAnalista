@@ -179,9 +179,9 @@ una preferencia de sesión.
 
 # MCP servers (`McpServers/`)
 
-El repo trae cuatro servidores MCP: `ZlApiMcp`, `DragonfishApiMcp`, `GestionBackupsMcp` y
-`SqlDiagnosticoMcp`. Los últimos tres están registrados en `.mcp.json`, que Claude Code levanta solo
-al abrir el proyecto.
+El repo trae cinco servidores MCP: `ZlApiMcp`, `DragonfishApiMcp`, `GestionBackupsMcp`,
+`SqlDiagnosticoMcp` y `ZNubeEcommerceMcp`. Los últimos cuatro están registrados en `.mcp.json`, que
+Claude Code levanta solo al abrir el proyecto.
 
 **Primera vez en una máquina que nunca los corrió** (fallan al arrancar si no): ver skill
 `setup-mcp-servers` — genera la clave de cifrado, arma `appsettings.secrets.json`, lo cifra y
@@ -356,3 +356,57 @@ antes de probar) ver skill `configurar-perfil-sql-diagnostico`.
 
 Todas las tools que apuntan a datos reciben `perfil` y `baseDeDatos` como primeros parámetros
 (salvo `listar_perfiles`, que no necesita ninguno, y `listar_bases`, que solo necesita `perfil`).
+
+---
+
+## ZNubeEcommerceMcp — trazabilidad de órdenes de venta de ecommerce (Mercado Libre)
+
+Servidor MCP registrado como `znube-ecommerce`. Wrapea la API "ECommerceIntegration" de zNube
+(`api.znube.com.ar` — confirmado en el código fuente de Dragonfish, `App.config` de
+`ZooLogicSA.Framework.zNube`), donde queda registrada cada orden de venta de un ecommerce del
+cliente antes de que Dragonfish la descargue como "operación" (tabla `ZooLogic.OPECOM`). Sirve
+para incidentes tipo "la venta no bajó" / "bajó con datos mal" / "cliente incorrecto" — ver qué
+vio zNube de esa orden, sin depender del Portal de DevOps de zNube (al que este equipo no tiene
+acceso — ver más abajo la nota sobre zNube en general).
+
+Mismo contrato ya probado en producción en `PanelMasterHelp/Services/ZNubeService.cs` — se copió
+tal cual (mismos endpoints, mismos query params), no se reinventó el request. Por ahora solo cubre
+Mercado Libre (`eCommerceType=1` hardcodeado) — Tienda Nube u otras plataformas quedan para cuando
+se pidan explícitamente.
+
+**Nota de alcance:** analizar incidentes de **zNube en sí** (el portal donde el cliente configura
+vinculaciones/ecommerce/cubos) para sacar nuevas habilidades no se consideró razonable por ahora
+— la mayoría de esos incidentes se resuelven del lado de zCloud/Devops, sin SQL accesible para
+este equipo. Este MCP es la excepción puntual: la trazabilidad de una orden de venta puntual sí es
+algo que este equipo puede diagnosticar (cruzando zNube + `OPECOM`), aunque la causa raíz a veces
+termine siendo de zNube.
+
+### Modelo de credenciales — storeId persistente, token siempre a mano
+
+Dos datos hacen falta para consultar la API: `storeId` (identifica la cuenta de Mercado Libre del
+cliente — es literalmente `ZooLogic.ECOM.IDVINC` en la base de ese cliente, confirmado en el
+código fuente de Dragonfish, `Cartero.cs`) y un token (`zNube-token`).
+
+- **`storeId` se persiste por cliente** (perfil, cifrado en `appsettings.secrets.enc` — mismo
+  mecanismo que los demás MCP). Es estable en el tiempo, así que una vez pedido no hace falta
+  volver a pedirlo. Se pidió explícitamente NO resolverlo automáticamente por SQL contra `ECOM`
+  aunque técnicamente se podría: para un triage rápido, restaurar un backup solo para leer ese
+  campo no es eficiente — más barato pedirlo una vez y guardarlo.
+- **El token NUNCA se persiste.** Rota cada cierto tiempo y lo tiene MDA — se pide como parámetro
+  en cada llamada a cada tool, siempre fresco. Nunca asumir uno guardado de una sesión anterior.
+
+Para dar de alta el storeId de un cliente nuevo, ver skill `configurar-perfil-znube-ecommerce`.
+
+### Tools
+
+| Tool | Qué hace |
+|------|----------|
+| `listar_perfiles` | Lista los clientes con storeId ya guardado. |
+| `obtener_orden` | Una orden puntual de Mercado Libre (JSON crudo de zNube). |
+| `buscar_ordenes` | Rango de órdenes desde un ID dado. |
+| `historial_orden` | Secuencia completa de estados de UNA orden puntual — no solo el estado final. |
+| `historial_ordenes` | Secuencia de estados de un rango de órdenes desde un ID dado. |
+| `historial_reclamos` | Historial de reclamos de un rango de órdenes. |
+
+Todas reciben `perfil` (resuelve el storeId) y `token` (siempre a pedir en el momento) como
+primeros parámetros.

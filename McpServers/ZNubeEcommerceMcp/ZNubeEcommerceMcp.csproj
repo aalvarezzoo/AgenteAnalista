@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZNubeEcommerceMcp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Cifrado de secretos propio de AgenteAnalista (mismo archivo que los demás MCP) — acá solo
+         guarda el storeId por cliente (estable), nunca el token de zNube (rota, lo pasa MDA en
+         cada incidente, jamás se persiste). -->
+    <ProjectReference Include="..\..\Shared\Secrets\AgenteAnalista.Secrets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- appsettings.secrets.enc vive en la raíz del repo (un solo archivo compartido por todos
+         los MCPs que necesiten secretos). Condition="Exists(...)" a propósito: si todavía no
+         existe (primera vez, antes de correr "agregar-perfil" de cualquier MCP), el build no
+         debe fallar por esto. -->
+    <Content Include="..\..\appsettings.secrets.enc" CopyToOutputDirectory="PreserveNewest" Link="appsettings.secrets.enc" Condition="Exists('..\..\appsettings.secrets.enc')" />
+  </ItemGroup>
+</Project>
