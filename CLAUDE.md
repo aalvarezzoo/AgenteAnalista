@@ -231,6 +231,10 @@ requerir intervención manual salvo cuando corresponde.
 
 ### `restaurar_backup(carpeta, nombreBase)`
 
+**Antes de preguntar dónde está el backup, probar la convención ya usada en varios incidentes
+reales:** la persona suele descargarlo en una carpeta local llamada como el número de incidente,
+ej. `C:\1694233`. Buscar ahí primero (`ls C:\<numeroDeIncidente>`) antes de pedir la ruta.
+
 Busca en la carpeta dada el único `.zip` cuyo nombre de base coincida con `nombreBase` (formato:
 `<fecha>-<hora>-<frecuencia>-<NombreBase>-<version>.zip`, versión con 3 partes numéricas, ej.
 `16.0004.14964`) y restaura solo ese — **nunca toca otros `.zip` que pueda haber en la misma carpeta**,

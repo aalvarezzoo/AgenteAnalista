@@ -14,7 +14,7 @@ Es el valor de `ZooLogic.ECOM.IDVINC` en la base de ese cliente (`DRAGONFISH_<no
 hay acceso SQL vivo a esa base por otro motivo del incidente, se puede confirmar con:
 
 ```sql
-SELECT codigo, idvinc, tipoecom, ultorder, ultclaim FROM ZooLogic.ECOM
+SELECT codigo, idvinc, tipoecom, cuenta, cuentacom, ultorder FROM ZooLogic.ECOM
 ```
 
 Pero **no vale la pena restaurar un backup solo para conseguir este dato** — es más eficiente
