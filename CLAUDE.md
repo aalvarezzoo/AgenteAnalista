@@ -354,7 +354,7 @@ antes de probar) ver skill `configurar-perfil-sql-diagnostico`.
 | `buscar_en_esquema` | Busca tablas/vistas/procedimientos/columnas por palabra clave en el nombre — punto de partida para no tener que indicar la tabla de antemano. |
 | `describir_tabla` | Columnas (tipo/longitud/nullable/identity), clave primaria, FKs entrantes y salientes, e índices de una tabla. Resuelve el esquema solo si no se indica (falla claro si es ambiguo). |
 | `obtener_definicion_objeto` | Código SQL real de una vista/SP/función/trigger (`OBJECT_DEFINITION`) — clave cuando un reporte SSRS llama a un SP donde vive el cálculo real. |
-| `consultar_sql` | `SELECT`/`WITH` de solo lectura, con límite de filas y timeout configurables (defaults 200 filas / 5 segundos). |
+| `consultar_sql` | `SELECT`/`WITH` de solo lectura, con límite de filas y timeout configurables (defaults 50 filas / 5 segundos). Además hay un tope de ~300 celdas totales (filas×columnas) que achica el límite de filas solo en tablas anchas — un `SELECT *` en una tabla de 50+ columnas devuelve menos filas de las pedidas para no gastar de más; para traer más filas, seleccionar columnas puntuales en vez de `*`. |
 | `buscar_valor` | Busca un valor exacto (CUIT, nro. de comprobante, etc.) en columnas de texto/numéricas compatibles de tablas candidatas — **requiere pasar la lista de tablas** (usar `buscar_en_esquema` primero); no hace barrido ciego de toda la base. |
 | `comparar_esquemas` | Diferencias de tablas/columnas entre dos bases de la misma instancia — para el caso típico "funciona en Demo, no en la base del cliente". |
 

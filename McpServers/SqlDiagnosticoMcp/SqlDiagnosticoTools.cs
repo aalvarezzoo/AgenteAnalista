@@ -166,12 +166,12 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
     });
 
     [McpServerTool(Name = "consultar_sql")]
-    [Description("Ejecuta una consulta SELECT (o WITH/CTE) de solo lectura contra la base indicada. Cualquier sentencia que no sea de lectura (INSERT/UPDATE/DELETE/DROP/ALTER/EXEC/etc.) se rechaza antes de llegar a SQL Server — aunque la protección real es que el login del perfil solo tiene permiso db_datareader. Los resultados se truncan a limiteFilas para no traer de más.")]
+    [Description("Ejecuta una consulta SELECT (o WITH/CTE) de solo lectura contra la base indicada. Cualquier sentencia que no sea de lectura (INSERT/UPDATE/DELETE/DROP/ALTER/EXEC/etc.) se rechaza antes de llegar a SQL Server — aunque la protección real es que el login del perfil solo tiene permiso db_datareader. Los resultados se truncan a limiteFilas (y además a un tope total de celdas, que se achica solo en tablas anchas) para no gastar de más en columnas que no hacen falta — preferir columnas explícitas en vez de SELECT * si la tabla es ancha y solo hacen falta un par de datos.")]
     public string ConsultarSql(
         [Description("Nombre del perfil (ver listar_perfiles)")] string perfil,
         [Description("Base de datos, ej. DRAGONFISH_DEMO")] string baseDeDatos,
         [Description("Sentencia SQL — debe empezar con SELECT o WITH")] string sql,
-        [Description("Máximo de filas a devolver (default 200, tope 1000)")] int limiteFilas = 200,
+        [Description("Máximo de filas a devolver (default 50, tope 1000) — preferir seleccionar columnas puntuales antes que subir esto en tablas anchas")] int limiteFilas = 50,
         [Description("Timeout en segundos (default 5, tope 30)")] int timeoutSegundos = 5) => Envolver(() =>
     {
         ConsultaSqlValidator.ValidarOTirar(sql);
@@ -183,21 +183,22 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
         using var cmd = new SqlCommand(sql, conn) { CommandTimeout = timeoutSegundos };
         using var reader = cmd.ExecuteReader();
 
+        var limiteEfectivo = LimiteEfectivoPorCeldas(limiteFilas, reader.FieldCount);
+
         var filas = new List<Dictionary<string, object?>>();
         var truncado = false;
         while (reader.Read())
         {
-            if (filas.Count >= limiteFilas) { truncado = true; break; }
+            if (filas.Count >= limiteEfectivo) { truncado = true; break; }
             filas.Add(FilaComoDiccionario(reader));
         }
 
-        return JsonSerializer.Serialize(new
-        {
-            filas,
-            cantidad = filas.Count,
-            truncado,
-            nota = truncado ? $"Se cortó en {limiteFilas} filas — puede haber más. Subí limiteFilas o acotá la consulta." : null,
-        });
+        var nota = !truncado ? null
+            : limiteEfectivo < limiteFilas
+                ? $"Se cortó en {limiteEfectivo} filas — el resultado tiene {reader.FieldCount} columnas, así que se redujo el límite pedido ({limiteFilas}) para no gastar de más. Para ver más filas, seleccioná menos columnas en el SELECT en vez de subir limiteFilas."
+                : $"Se cortó en {limiteFilas} filas — puede haber más. Subí limiteFilas o acotá la consulta.";
+
+        return JsonSerializer.Serialize(new { filas, cantidad = filas.Count, truncado, nota });
     });
 
     [McpServerTool(Name = "buscar_valor")]
@@ -285,6 +286,16 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
         cfg.Value.Perfiles.TryGetValue(perfil, out var p)
             ? p
             : throw new McpException($"No existe el perfil '{perfil}'. Usá listar_perfiles para ver los configurados.");
+
+    /// <summary>Tope total de celdas (filas × columnas) para no gastar de más en tablas anchas.
+    /// El JSON de salida es por fila (repite el nombre de cada columna en cada fila, no es
+    /// columnar) — un SELECT * en una tabla de 80+ columnas con el límite de filas de siempre
+    /// multiplica el gasto de tokens varias veces sin necesidad. Achica el límite de filas pedido
+    /// solo cuando hace falta (tablas angostas no se ven afectadas).</summary>
+    private const int MaxCeldasPorConsulta = 300;
+
+    private static int LimiteEfectivoPorCeldas(int limiteFilasPedido, int cantidadColumnas) =>
+        cantidadColumnas <= 0 ? limiteFilasPedido : Math.Min(limiteFilasPedido, Math.Max(1, MaxCeldasPorConsulta / cantidadColumnas));
 
     private static Dictionary<string, object?> FilaComoDiccionario(SqlDataReader reader)
     {
@@ -465,8 +476,14 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
 
         var filas = new List<Dictionary<string, object?>>();
         using (var reader = cmd.ExecuteReader())
+        {
+            var limiteEfectivo = LimiteEfectivoPorCeldas(limitePorTabla, reader.FieldCount);
             while (reader.Read())
+            {
+                if (filas.Count >= limiteEfectivo) break;
                 filas.Add(FilaComoDiccionario(reader));
+            }
+        }
 
         return new { tabla = etiqueta, columnasComparadas = columnas, filas };
     }
