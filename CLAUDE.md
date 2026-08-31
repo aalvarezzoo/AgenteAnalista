@@ -177,86 +177,19 @@ una preferencia de sesión.
 
 ---
 
-# MCP servers (`McpServers/`) — primera vez que se levantan en una máquina nueva
+# MCP servers (`McpServers/`)
 
 El repo trae cuatro servidores MCP: `ZlApiMcp`, `DragonfishApiMcp`, `GestionBackupsMcp` y
 `SqlDiagnosticoMcp`. Los últimos tres están registrados en `.mcp.json`, que Claude Code levanta solo
-al abrir el proyecto. `DragonfishApiMcp` y `SqlDiagnosticoMcp` necesitan estos pasos la primera vez
-en una máquina que nunca los corrió — si no, fallan al arrancar (a propósito, con un error claro en
-vez de fallar en silencio):
+al abrir el proyecto.
 
-### Gotcha del SDK (`ModelContextProtocol` paquete NuGet): las excepciones .NET comunes no llegan al modelo
+**Primera vez en una máquina que nunca los corrió** (fallan al arrancar si no): ver skill
+`setup-mcp-servers` — genera la clave de cifrado, arma `appsettings.secrets.json`, lo cifra y
+compila.
 
-Confirmado probando `SqlDiagnosticoMcp` end-to-end: si una tool tira `InvalidOperationException` (o
-cualquier excepción que no sea `ModelContextProtocol.McpException`), el SDK la sanitiza antes de
-devolverla — el modelo recibe un mensaje genérico ("An error occurred invoking 'x'.") sin el texto
-descriptivo real, aunque el código haya escrito un mensaje claro. Confirmado revisando el XML de
-documentación del paquete (`ModelContextProtocol.Core.xml`): `McpException` es, a propósito, el
-único tipo cuyo `.Message` se propaga tal cual al cliente MCP — para cualquier otra excepción es
-comportamiento de diseño del SDK, no un bug del lado nuestro.
-
-**Consecuencia práctica:** cualquier tool nueva (en este o futuros MCP de este repo) que tire una
-excepción esperando que el mensaje llegue al modelo tiene que tirar `McpException`, no
-`InvalidOperationException` u otra genérica — o envolver el cuerpo del método en un `try/catch` que
-reconvierta cualquier excepción capturada en `McpException(ex.Message, ex)` (patrón `Envolver` en
-`SqlDiagnosticoTools.cs`). `DragonfishApiMcp` y `GestionBackupsMcp` tiran `InvalidOperationException`
-en varios lugares (`ResolverPerfil`, `ResolverInstanciaSql`, etc.) — probablemente tengan el mismo
-problema, pero no se tocaron todavía porque no se pidió explícitamente arreglarlos.
-
-1. **Generar tu propia clave de cifrado** (no se comparte entre integrantes del equipo):
-   ```
-   dotnet McpServers/DragonfishApiMcp/bin/Debug/net10.0/DragonfishApiMcp.dll generate-key
-   ```
-   Guardá el hex de 64 caracteres que imprime. (La primera vez hace falta compilar el proyecto antes
-   — `dotnet build McpServers/DragonfishApiMcp` — para tener el `.dll`.)
-
-2. **Setearla como variable de entorno persistente** (una sola vez, PowerShell como administrador si
-   hace falta):
-   ```powershell
-   [System.Environment]::SetEnvironmentVariable('AGENTEANALISTA_SECRET_KEY', '<tu-clave>', 'User')
-   ```
-   Reabrir la terminal/VS Code después de esto para que la vea.
-
-3. **Crear `appsettings.secrets.json`** en la raíz del repo (nunca se commitea, está en
-   `.gitignore`) con tus propias credenciales. Ejemplo mínimo:
-   ```json
-   {
-     "ZlApi": { "BaseUrl": "", "IdCliente": "", "Authorization": "", "BaseDeDatos": "" },
-     "DragonfishApi": { "Perfiles": {} }
-   }
-   ```
-   Completar `DragonfishApi.Perfiles` con tus propios perfiles si vas a probar contra alguna
-   instalación de Dragonfish (ver `McpServers/DragonfishApiMcp/DragonfishApiConfig.cs` para la forma
-   exacta).
-
-4. **Cifrarlo:**
-   ```
-   dotnet McpServers/DragonfishApiMcp/bin/Debug/net10.0/DragonfishApiMcp.dll encrypt
-   ```
-   Esto genera `appsettings.secrets.enc` en la raíz del repo (tampoco se commitea) — un solo archivo,
-   compartido por todos los MCPs que necesiten secretos (cada uno lo copia a su propio `bin/` al
-   compilar). Podés borrar el `.json` plano después — el comando `decrypt` lo reconstruye si hace
-   falta editarlo más adelante.
-
-5. **Compilar los MCP servers al menos una vez** — `.mcp.json` apunta al `.dll` ya compilado, no a
-   `dotnet run`, así que si no se buildea antes, Claude Code no encuentra el ejecutable:
-   ```
-   dotnet build McpServers/DragonfishApiMcp
-   dotnet build McpServers/GestionBackupsMcp
-   ```
-
-6. **Reiniciar VS Code** (o recargar la ventana) para que Claude Code levante los servidores del
-   `.mcp.json`.
-
-Cada uno gestiona su propia clave y su propio `appsettings.secrets.json` — no hay una clave ni un
-archivo de secretos único para todo el equipo.
-
-**Si en el paso 5 (o antes) tira este error:**
-```
-error MSB3030: No se pudo copiar el archivo "appsettings.secrets.enc" porque no se encontró.
-```
-Significa que se saltearon el paso 3/4 — hay que crear y cifrar el `appsettings.secrets.json` antes
-de compilar.
+**Antes de escribir o modificar cualquier tool de un MCP de este repo:** ver skill
+`mcp-tools-desarrollo` — hay un gotcha del SDK (`ModelContextProtocol`) sobre cómo tienen que
+tirarse las excepciones para que el mensaje real le llegue al modelo en vez de uno genérico.
 
 ## DragonfishApiMcp — cómo configurar un perfil cuando alguien pide "usar la API de Dragonfish"
 
@@ -265,103 +198,13 @@ propia de quien esté trabajando (hoy, la de AALVAREZ en local), no la de un cli
 instalación de Dragonfish sirve para cualquier base de esa instancia — es única por instalación, no
 por base de datos.
 
-### Paso 1 — Probar antes de asumir que un perfil funciona
+**Por default asumir el perfil `TEST`** (no preguntar cuál) — pero **nunca asumir que funciona solo
+porque `listar_perfiles` lo devuelve en la lista**. Probarlo primero con una llamada real y liviana
+(ej. `consultar` sobre `Articulo` con `limit:1`). Si falla (401, timeout, conexión rechazada, o el
+perfil existe pero está vacío), tratarlo como si no existiera.
 
-Cuando alguien pida usar la API, **por default asumir el perfil `TEST`** (no preguntar cuál) — pero
-**nunca asumir que funciona solo porque `listar_perfiles` lo devuelve en la lista**. Probarlo primero
-con una llamada real y liviana (ej. `consultar` sobre `Articulo` con `limit:1`). Si falla (401,
-timeout, conexión rechazada), tratarlo como si no existiera — explicar qué pasó y pasar al Paso 2, en
-vez de dejar que el error crudo de la API confunda.
-
-### Paso 2 — Si no hay perfil que funcione: elegir la instancia SQL de una lista, no pedir que la tipeen
-
-Se necesita saber en qué instancia de SQL Server vive `DRAGONFISH_ZOOLOGICMASTER` para poder buscar
-host/puerto/base de datos (ver "Bases de datos SQL Server" más arriba). Ese nombre varía por
-máquina — no hay que pedirle a la persona que lo escriba a mano (dato "de su entorno", fácil de
-errar). En cambio, listar las instancias SQL instaladas en esa máquina y que elija de ahí:
-
-```powershell
-Get-Service -Name "MSSQL*" | Where-Object Status -eq Running
-```
-
-El nombre de instancia sale del nombre del servicio: `MSSQL$SQLEXPRESS2022` → instancia
-`.\SQLEXPRESS2022`; `MSSQLSERVER` (sin `$`) → instancia por defecto `.`. Presentar las opciones
-encontradas para que la persona elija una (ahí sí tiene sentido preguntar con opciones, a diferencia
-del Paso 3).
-
-### Paso 3 — Pedir IdCliente y Token (nada de credenciales para firmar nada)
-
-`agregar-perfil` **no reimplementa la firma del token** — hubo una versión anterior que sí (replicaba
-`getJWT.exe`, la herramienta previa al botón "Obtener Token" de Dragonfish) y se sacó por frágil:
-cualquier detalle de la firma que no coincidiera byte a byte con lo que Dragonfish esperaba
-internamente daba 401 sin pista real del motivo (se perdió una sesión entera cazando esos bugs). Ahora
-se usa el token tal cual lo entrega Dragonfish — cero riesgo de desincronización con su algoritmo.
-
-Pedirle a la persona que en la pantalla "Cliente REST API" de Dragonfish (la misma donde ya creó o
-está por crear el cliente) apriete **"Obtener Token"** y pegue acá el `IdCliente` y el token
-resultante. Bloque libre, sin herramienta de preguntas con opciones (son datos libres/secretos):
-
-```
-IdCliente:  [                                    ]
-             → el "Código" de la pantalla Cliente REST API de Dragonfish
-
-Token:      [                                    ]
-             → el que da el botón "Obtener Token" de esa misma pantalla
-```
-
-No preguntar el nombre de `Perfil` — el equipo usa una sola API/servicio de prueba, así que por
-default es `TEST`. Solo se usa otro nombre si la persona menciona explícitamente que está
-configurando un cliente distinto (ej. "creé otro cliente para probar X, ¿cómo lo uso?") — ahí sí
-correspondería un perfil nuevo con otro nombre. `agregar-perfil` sobrescribe por nombre, no duplica.
-
-### Paso 4 — Ejecutar y confirmar
-
-```
-dotnet McpServers/DragonfishApiMcp/bin/Debug/net10.0/DragonfishApiMcp.dll agregar-perfil <instanciaSQL> <perfil> <idCliente> <token>
-```
-
-Corrido desde la raíz del repo. **Nunca mostrar** el token en la respuesta — confirmar solo perfil,
-`IdCliente` y `BaseUrl` encontrado.
-
-El "Servicio REST API" y el "Cliente REST API" en Dragonfish se siguen creando a mano en la pantalla
-de Dragonfish — eso no se automatiza. Este flujo solo evita transcribir host/puerto/base de datos a
-mano (los busca por SQL a partir del `IdCliente`).
-
-### Paso 5 — Rebuild + reiniciar el MCP antes de probar (si no, el 401 engaña)
-
-`agregar-perfil` escribe el perfil nuevo en `appsettings.secrets.enc` **relativo al directorio desde
-donde se corre el comando** (la raíz del repo, si se sigue esta guía). Pero el servidor MCP
-`dragonfish-api` que ya está corriendo en la sesión lee esa misma ruta relativa a
-`AppContext.BaseDirectory` (la carpeta del `.dll`, `McpServers/DragonfishApiMcp/bin/Debug/net10.0/`)
-— **son dos archivos físicos distintos**. Ese bin-copy solo se sincroniza con el de la raíz en build
-(vía el `Content Include` del csproj), no al correr `agregar-perfil`.
-
-Consecuencia: si se prueba el perfil solo recargando VS Code (sin rebuild antes), el MCP sigue
-leyendo la copia vieja del bin y devuelve 401 — un 401 que **no dice nada sobre si el perfil nuevo
-está bien o mal**, porque ni siquiera lo está usando todavía.
-
-Pasos completos después de correr `agregar-perfil` (alta o reconfiguración de un perfil existente):
-
-1. **Chequear que no haya un proceso `DragonfishApiMcp.dll` huérfano** de un reload anterior (cada
-   reload de VS Code parece lanzar uno nuevo sin matar el anterior):
-   ```powershell
-   Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*DragonfishApiMcp.dll*" -and $_.Name -eq "dotnet.exe" } | Select-Object ProcessId
-   ```
-   Si aparece más de uno (o incluso uno solo), matarlo(s) con `Stop-Process -Id <pid> -Force` — el
-   rebuild del paso siguiente falla con "archivo bloqueado" (MSB3021/MSB3026) si el proceso sigue
-   vivo, porque tiene su propia copia del `.dll` cargada en memoria. Este mismo problema (proceso
-   huérfano bloqueando el rebuild) aplica a **cualquier** MCP de este repo, no solo a
-   DragonfishApiMcp — mismo síntoma, mismo fix.
-2. **Rebuildear** para que MSBuild vuelva a copiar el `appsettings.secrets.enc` de la raíz al bin de
-   salida:
-   ```
-   dotnet build McpServers/DragonfishApiMcp
-   ```
-3. **Recargar la ventana de VS Code** (`Developer: Reload Window`, o cerrar y volver a abrir) — recién
-   ahí el MCP arranca leyendo el archivo correcto.
-
-Si después de estos tres pasos sigue en 401, ahí sí vale investigar credenciales/token — antes de
-eso, no es diagnóstico.
+Si hace falta darlo de alta o reconfigurarlo (elegir instancia SQL, pedir IdCliente/Token, ejecutar
+`agregar-perfil`, rebuild+reload antes de probar) ver skill `configurar-perfil-dragonfish-api`.
 
 ---
 
@@ -482,16 +325,7 @@ a incidente en este mismo archivo — este MCP da las herramientas de exploraci�
 1. **Login SQL dedicado de solo lectura.** Cada perfil se conecta con **SQL Authentication** (nunca
    Integrated Security con la cuenta Windows del analista, nunca `sa`) usando un login que en SQL
    Server **solo tiene el rol `db_datareader`** en las bases que se vayan a consultar. Esto es lo
-   que realmente impide escribir algo — no el código de este MCP. Crear el login así (ejecutar
-   contra la instancia, ajustando el nombre de base por cada una que se quiera habilitar):
-   ```sql
-   CREATE LOGIN mh_sql_readonly WITH PASSWORD = '<password-fuerte>', CHECK_POLICY = ON;
-
-   USE DRAGONFISH_DEMO;
-   CREATE USER mh_sql_readonly FOR LOGIN mh_sql_readonly;
-   ALTER ROLE db_datareader ADD MEMBER mh_sql_readonly;
-   -- Repetir el bloque USE/CREATE USER/ALTER ROLE por cada base adicional a habilitar.
-   ```
+   que realmente impide escribir algo — no el código de este MCP.
 2. **Validación en el propio MCP (`ConsultaSqlValidator`).** `consultar_sql` rechaza cualquier texto
    que no empiece con `SELECT`/`WITH`, que tenga más de un statement, o que contenga palabras como
    `INSERT/UPDATE/DELETE/DROP/ALTER/EXEC/sp_/xp_/...`. Es defensa en profundidad — da un error claro
@@ -503,28 +337,9 @@ explícita — nunca una ampliación de `consultar_sql`.
 
 ### Configurar un perfil
 
-Un perfil es una instancia de SQL Server + las credenciales del login de solo lectura. Igual que
-`DragonfishApiMcp`, se guarda cifrado en `appsettings.secrets.enc` (compartido por todos los MCPs
-del repo — ver la sección de setup general de MCP servers más arriba para generar la clave la
-primera vez en una máquina nueva).
-
-```
-dotnet McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll agregar-perfil <perfil> <instancia> <usuario> <password>
-```
-
-Corrido desde la raíz del repo, ej.:
-```
-dotnet McpServers/SqlDiagnosticoMcp/bin/Debug/net10.0/SqlDiagnosticoMcp.dll agregar-perfil TEST .\SQLEXPRESS2022 mh_sql_readonly <password>
-```
-
-**Nunca mostrar el password en la respuesta** — confirmar solo perfil, instancia y usuario.
-
-**Mismo gotcha de rebuild que `DragonfishApiMcp` (ver Paso 5 de esa sección más arriba):**
-`agregar-perfil` escribe en el `appsettings.secrets.enc` de la raíz, pero el MCP que ya está
-corriendo lee la copia en su propio `bin/` — hay que matar cualquier proceso
-`SqlDiagnosticoMcp.dll` huérfano, correr `dotnet build McpServers/SqlDiagnosticoMcp` para que se
-vuelva a copiar, y recién ahí recargar la ventana de VS Code. Si se prueba el perfil sin este paso,
-el error de conexión no dice nada real sobre si el perfil está bien o mal.
+Un perfil es una instancia de SQL Server + las credenciales del login de solo lectura. Para el
+paso a paso completo (crear el login SQL, correr `agregar-perfil`, el gotcha de rebuild+reload
+antes de probar) ver skill `configurar-perfil-sql-diagnostico`.
 
 ### Tools
 
