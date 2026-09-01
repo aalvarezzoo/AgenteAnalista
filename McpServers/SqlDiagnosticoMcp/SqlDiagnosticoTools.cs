@@ -339,7 +339,9 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
     /// solo cuando hace falta (tablas angostas no se ven afectadas).</summary>
     private const int MaxCeldasPorConsulta = 300;
 
-    private static int LimiteEfectivoPorCeldas(int limiteFilasPedido, int cantidadColumnas) =>
+    /// <summary>internal (no private) a propósito — testeada directamente desde AgenteAnalista.Tests
+    /// vía InternalsVisibleTo (ver SqlDiagnosticoMcp.csproj), sin necesidad de SQL Server real.</summary>
+    internal static int LimiteEfectivoPorCeldas(int limiteFilasPedido, int cantidadColumnas) =>
         cantidadColumnas <= 0 ? limiteFilasPedido : Math.Min(limiteFilasPedido, Math.Max(1, MaxCeldasPorConsulta / cantidadColumnas));
 
     private static Dictionary<string, object?> FilaComoDiccionario(SqlDataReader reader)

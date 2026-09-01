@@ -17,6 +17,40 @@ public static partial class NombreBackup
 {
     [GeneratedRegex(@"^\d{8}-\d{6}-[^-]+-(?<base>.+)-\d+\.\d+\.\d+\.zip$", RegexOptions.IgnoreCase)]
     public static partial Regex Patron();
+
+    /// <summary>Elige, entre los .zip de una carpeta, el único cuyo nombre de base coincida con
+    /// <paramref name="nombreBase"/> — nunca toca otros .zip que pueda haber al lado (ej. un backup
+    /// de DRAGONFISH_ZOOLOGICMASTER en la misma carpeta). Extraído a función pura para poder
+    /// testear esta regla sin tocar el sistema de archivos real.</summary>
+    public static string? ElegirZip(IEnumerable<string> zips, string nombreBase) =>
+        zips.FirstOrDefault(z =>
+        {
+            var m = Patron().Match(Path.GetFileName(z));
+            return m.Success && string.Equals(m.Groups["base"].Value, nombreBase, StringComparison.OrdinalIgnoreCase);
+        });
+}
+
+/// <summary>Interpreta el log de ZooBkp.exe para una corrida puntual — separado de
+/// <see cref="GestionBackupsTools"/> para poder testear esta lógica sin depender de Process.Start
+/// ni del registro de Windows que esa clase resuelve en sus campos estáticos.</summary>
+public static class RestoreResultado
+{
+    public readonly record struct Evaluacion(bool Exito, bool HuboRestauracionReal);
+
+    /// <summary>Frase textual y específica de ZooBkp para el resultado FINAL del proceso — no
+    /// alcanza con buscar "con éxito" suelto: pasos intermedios ("herramientas exportadas con
+    /// éxito") pueden contenerlo aunque el proceso termine mal. "Invocando al componente
+    /// SQLDmoWrapper" confirma que hubo restauración real — ZooBkp puede reportar éxito general
+    /// sin haber tocado nada si la base no está registrada en Emp (ver CLAUDE.md).</summary>
+    public static Evaluacion Evaluar(int exitCode, string logNuevo)
+    {
+        var huboExito = logNuevo.Contains("finalizado con éxito", StringComparison.OrdinalIgnoreCase);
+        var huboError = logNuevo.Contains("finalizado con errores", StringComparison.OrdinalIgnoreCase)
+            || logNuevo.Contains("retorno erróneo", StringComparison.OrdinalIgnoreCase);
+        var exito = exitCode == 0 && huboExito && !huboError;
+        var huboRestauracionReal = logNuevo.Contains("Invocando al componente SQLDmoWrapper", StringComparison.OrdinalIgnoreCase);
+        return new Evaluacion(exito, huboRestauracionReal);
+    }
 }
 
 [McpServerToolType]
@@ -88,11 +122,7 @@ public sealed class GestionBackupsTools
             return $"La carpeta '{carpeta}' no existe.";
 
         var zips = Directory.GetFiles(carpeta, "*.zip");
-        var zip = zips.FirstOrDefault(z =>
-        {
-            var m = NombreBackup.Patron().Match(Path.GetFileName(z));
-            return m.Success && string.Equals(m.Groups["base"].Value, nombreBase, StringComparison.OrdinalIgnoreCase);
-        });
+        var zip = NombreBackup.ElegirZip(zips, nombreBase);
 
         if (zip is null)
             return $"No se encontró ningún .zip para la base '{nombreBase}' en '{carpeta}'. (Otros .zip que pueda haber en la carpeta no se tocan salvo que se pidan explícitamente.)";
@@ -246,21 +276,7 @@ public sealed class GestionBackupsTools
             proc.WaitForExit();
 
             var logNuevo = LeerLogNuevo(posicionPrevia);
-
-            // Frase textual y específica de ZooBkp para el resultado FINAL del proceso — no alcanza
-            // con buscar "con éxito" suelto: pasos intermedios ("herramientas exportadas con éxito")
-            // pueden contenerlo aunque el proceso termine mal. Ya nos pasó: una restauración con un
-            // error real de ADN Implant quedó marcada como éxito por este motivo.
-            var huboExito = logNuevo.Contains("finalizado con éxito", StringComparison.OrdinalIgnoreCase);
-            var huboError = logNuevo.Contains("finalizado con errores", StringComparison.OrdinalIgnoreCase)
-                || logNuevo.Contains("retorno erróneo", StringComparison.OrdinalIgnoreCase);
-            var exito = proc.ExitCode == 0 && huboExito && !huboError;
-
-            // ZooBkp puede reportar "éxito" sin haber restaurado nada de verdad si la base no está
-            // registrada en esta instalación (no crea bases nuevas de la nada) — el paso real de
-            // restauración ("Invocando al componente SQLDmoWrapper...") nunca llega a ejecutarse.
-            // Nos pasó con una base inexistente: quedó "success" siendo en realidad un no-op.
-            var huboRestauracionReal = logNuevo.Contains("Invocando al componente SQLDmoWrapper", StringComparison.OrdinalIgnoreCase);
+            var (exito, huboRestauracionReal) = RestoreResultado.Evaluar(proc.ExitCode, logNuevo);
 
             if (exito && !huboRestauracionReal)
                 return $"⚠ {nombreArchivo} → {nombreBase}: ZooBkp reportó éxito, pero no se detectó que haya restaurado datos de verdad — probablemente '{nombreBase}' no está registrada en esta instalación de Dragonfish (no crea bases nuevas). Revisar antes de asumir que quedó restaurada.";

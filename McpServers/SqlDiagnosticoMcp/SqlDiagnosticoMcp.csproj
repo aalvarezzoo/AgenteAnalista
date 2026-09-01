@@ -20,6 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Permite testear LimiteEfectivoPorCeldas (internal) desde AgenteAnalista.Tests sin exponerlo
+         públicamente en la superficie de la tool. -->
+    <InternalsVisibleTo Include="AgenteAnalista.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- appsettings.secrets.enc vive en la raíz del repo (un solo archivo compartido por todos
          los MCPs que necesiten secretos). Condition="Exists(...)" a propósito: si todavía no
          existe (primera vez, antes de correr "agregar-perfil" de cualquier MCP), el build no
