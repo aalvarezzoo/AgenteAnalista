@@ -13,7 +13,8 @@ repo — ver skill `setup-mcp-servers` para generar la clave la primera vez en u
 
 **Esta es la protección real** — no la validación de texto del propio MCP. El login debe usar
 **SQL Authentication** (nunca Integrated Security con la cuenta Windows del analista, nunca `sa`)
-y tener **únicamente el rol `db_datareader`** en las bases que se vayan a consultar:
+y tener **únicamente el rol `db_datareader` + el permiso `VIEW DEFINITION`** en las bases que se
+vayan a consultar:
 
 ```sql
 CREATE LOGIN mh_sql_readonly WITH PASSWORD = '<password-fuerte>', CHECK_POLICY = ON;
@@ -21,8 +22,16 @@ CREATE LOGIN mh_sql_readonly WITH PASSWORD = '<password-fuerte>', CHECK_POLICY =
 USE DRAGONFISH_DEMO;
 CREATE USER mh_sql_readonly FOR LOGIN mh_sql_readonly;
 ALTER ROLE db_datareader ADD MEMBER mh_sql_readonly;
--- Repetir el bloque USE/CREATE USER/ALTER ROLE por cada base adicional a habilitar.
+GRANT VIEW DEFINITION TO mh_sql_readonly;
+-- Repetir el bloque USE/CREATE USER/ALTER ROLE/GRANT por cada base adicional a habilitar.
 ```
+
+**El `GRANT VIEW DEFINITION` no es opcional** — sin él, `obtener_definicion_objeto` devuelve
+`NULL` para *cualquier* vista/SP/función, aunque no esté cifrada — `db_datareader` da permiso para
+leer datos, pero no para ver la definición de los objetos. Confirmado en la práctica: las 12 vistas
+de `DRAGONFISH_DEMO` devolvían "no tiene definición SQL accesible" (mensaje que sugiere que podría
+estar cifrada) cuando en realidad ninguna lo estaba — solo faltaba este permiso. Si se creó un
+perfil antes de que este paso existiera, agregar el `GRANT` a mano en cada base ya habilitada.
 
 Si el login ya existe y solo hace falta habilitar una base nueva, alcanza con repetir el bloque
 `USE`/`CREATE USER`/`ALTER ROLE` para esa base — no hace falta tocar el `CREATE LOGIN`.

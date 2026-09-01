@@ -144,25 +144,70 @@ public sealed class SqlDiagnosticoTools(IOptions<SqlDiagnosticoConfig> cfg)
     });
 
     [McpServerTool(Name = "obtener_definicion_objeto")]
-    [Description("Devuelve el código SQL real de una vista, procedimiento almacenado, función o trigger (sys.sql_modules vía OBJECT_DEFINITION) — clave cuando un reporte SSRS llama a un SP donde vive el cálculo real. Si no se indica esquema, lo resuelve solo (falla con un mensaje claro si es ambiguo).")]
+    [Description("Devuelve el código SQL real de una vista, procedimiento almacenado, función o trigger (sys.sql_modules vía OBJECT_DEFINITION) — clave cuando un reporte SSRS llama a un SP donde vive el cálculo real. Si no se indica esquema, lo resuelve solo (falla con un mensaje claro si es ambiguo). Se trunca a limiteCaracteres para no traer de una sola vez la definición completa de un objeto enorme — si queda truncado, volver a llamar con desde=<lo que indique la nota> para seguir leyendo desde ahí, no subir limiteCaracteres sin límite.")]
     public string ObtenerDefinicionObjeto(
         [Description("Nombre del perfil (ver listar_perfiles)")] string perfil,
         [Description("Base de datos, ej. DRAGONFISH_DEMO")] string baseDeDatos,
         [Description("Nombre del objeto (vista/SP/función/trigger), ej. SP_LISTADO_PRECIOS")] string nombreObjeto,
-        [Description("Esquema, opcional — si no se indica se resuelve solo")] string? esquema = null) => Envolver(() =>
+        [Description("Esquema, opcional — si no se indica se resuelve solo")] string? esquema = null,
+        [Description("Desde qué caracter empezar a devolver (default 0) — usarlo para pedir el siguiente pedazo cuando la llamada anterior quedó truncada")] int desde = 0,
+        [Description("Máximo de caracteres a devolver desde 'desde' (default 8000, tope 50000)")] int limiteCaracteres = 8000) => Envolver(() =>
     {
+        desde = Math.Max(0, desde);
+        limiteCaracteres = Math.Clamp(limiteCaracteres, 500, 50000);
+
         var p = ResolverPerfil(perfil);
         using var conn = ConexionHelper.AbrirConexion(p, baseDeDatos);
         var esq = ConexionHelper.ResolverEsquemaDeObjeto(conn, nombreObjeto, esquema);
-
         var nombreCompleto = $"{ConexionHelper.CorchetesSeguro(esq)}.{ConexionHelper.CorchetesSeguro(nombreObjeto)}";
+
+        // Antes de pedir la definición, chequear tipo real + si está cifrado — así, si
+        // OBJECT_DEFINITION da NULL, se puede decir la causa real en vez de listar sospechosos
+        // ("puede ser una tabla, o estar cifrado") sin confirmar ninguno. Confirmado en la
+        // práctica: la causa real más común no era ninguna de esas dos, era que al login le
+        // faltaba el permiso VIEW DEFINITION (que db_datareader no incluye).
+        string tipo;
+        bool cifrado;
+        using (var cmdInfo = new SqlCommand(
+            "SELECT o.type, OBJECTPROPERTY(o.object_id, 'IsEncrypted') FROM sys.objects o WHERE o.object_id = OBJECT_ID(@nombreCompleto)",
+            conn) { CommandTimeout = 10 })
+        {
+            cmdInfo.Parameters.AddWithValue("@nombreCompleto", nombreCompleto);
+            using var readerInfo = cmdInfo.ExecuteReader();
+            if (!readerInfo.Read())
+                throw new McpException($"No se pudo resolver el objeto '{esq}.{nombreObjeto}' para chequear su tipo.");
+            tipo = readerInfo.GetString(0).Trim();
+            cifrado = !readerInfo.IsDBNull(1) && readerInfo.GetInt32(1) == 1;
+        }
+
+        if (tipo == "U")
+            return $"'{esq}.{nombreObjeto}' es una tabla — las tablas no tienen definición SQL, no es un error.";
+
         using var cmd = new SqlCommand("SELECT OBJECT_DEFINITION(OBJECT_ID(@nombreCompleto))", conn) { CommandTimeout = 15 };
         cmd.Parameters.AddWithValue("@nombreCompleto", nombreCompleto);
         var definicion = cmd.ExecuteScalar() as string;
 
-        return definicion is null
-            ? $"El objeto '{esq}.{nombreObjeto}' no tiene definición SQL accesible (puede ser una tabla, o un objeto cifrado con WITH ENCRYPTION)."
-            : definicion;
+        if (definicion is null)
+        {
+            return cifrado
+                ? $"'{esq}.{nombreObjeto}' está creado con WITH ENCRYPTION — nadie puede ver su definición, ni siquiera un administrador."
+                : $"'{esq}.{nombreObjeto}' no está cifrado pero no devolvió definición — el login del perfil probablemente no tiene el permiso VIEW DEFINITION en esta base (ver skill configurar-perfil-sql-diagnostico).";
+        }
+
+        if (desde >= definicion.Length)
+            return $"-- '{esq}.{nombreObjeto}' tiene {definicion.Length} caracteres en total — 'desde' ({desde}) ya pasó el final, no hay más para mostrar.";
+
+        var restante = definicion.Length - desde;
+        var aDevolver = Math.Min(limiteCaracteres, restante);
+        var recorte = definicion.Substring(desde, aDevolver);
+        var prefijo = desde == 0 ? "" : $"-- [continúa desde el caracter {desde} de {definicion.Length}]\n";
+
+        if (aDevolver >= restante)
+            return prefijo + recorte;
+
+        var proximoDesde = desde + aDevolver;
+        return prefijo + recorte
+            + $"\n\n-- [TRUNCADO: quedan {definicion.Length - proximoDesde} caracteres más de {definicion.Length} totales. Para seguir, llamá de nuevo con desde={proximoDesde}.]";
     });
 
     [McpServerTool(Name = "consultar_sql")]
