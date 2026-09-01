@@ -334,6 +334,41 @@ Este flujo completo (chequeo → alta → restore) se probó de punta a punta co
 que faltaba, dio de alta con confirmación, restauró solo la base pedida, y en una restauración
 posterior de la misma base detectó que ya existía y restauró directo sin volver a preguntar.
 
+### Qué hace exactamente el restore cuando la base recién se dio de alta (sin archivo físico aún)
+
+Investigado en el código fuente real (ver "Código fuente de Dragonfish" más arriba) a pedido
+explícito, porque no alcanzaba con inferirlo desde afuera — quedó la duda de qué hace el propio
+restaurador/ADN Implant cuando la base está en `Emp` pero todavía no existe como archivo en SQL
+Server:
+
+- **El chequeo previo al restore no verifica el archivo físico.** `RestoreBase.EjecutarLogicaRestore`
+  llama a `ValidarBaseDatosDesconectada`, que en `AdnImplantManager` delega en
+  `_gestorSalud.ObtenerBasesDesconectadas(nombre)` — un estado de salud/semáforo interno, no si el
+  `.mdf` existe. Una base recién dada de alta en `Emp` sin flag de "desconectada" pasa este control
+  aunque el archivo todavía no exista — por eso el flujo sigue.
+- **El archivo físico lo crea SQL Server mismo, no Dragonfish.** `SqlDmoWrapper.RestoreDatabase`
+  (`ZooLogicSA.SqlDmoWrapper/SqlDmoWrapper.cs`) arma un `RESTORE DATABASE ... WITH MOVE ..., REPLACE`
+  vía SMO. El destino de los archivos (`MOVE ... TO`) sale de `Server.Information.MasterDBPath`/
+  `MasterDBLogPath` — la carpeta de datos default de la instancia SQL Server, **no** de
+  `Emp.crutamdf` (que no se consulta en ningún punto de este camino — confirma y extiende lo ya
+  documentado más arriba: no es que se limpia a vacío, directamente no participa en el restore).
+  `SetSingleUser`/`KillAllProcesses`, llamados antes del restore, son no-ops seguros sobre una base
+  que todavía no existe (buscan en `Server.Databases`; si no la encuentran, no tiran excepción).
+- **La "adecuación" de ADN Implant es sobre la estructura, no sobre crear el archivo.** Después del
+  restore SQL, `RestoreBase.AdecuarBaseDatosUsandoAdnImplant` → `AdnImplantManager.AdecuarBaseDeDatos`
+  corre el proceso real de ADN Implant (`EjecutarAdnImplant` o
+  `EjecutarAdnImplantConCorreccionCollation` según si el collation de la base restaurada coincide con
+  el de `ZOOLOGICMASTER`) para reconciliar tablas/columnas/índices contra lo que espera la versión de
+  esta instalación — el equivalente a una migración de esquema, no relacionado a crear el archivo
+  (eso ya lo hizo el paso anterior).
+- **Por último**, `ConfigurarOnlineBD` marca la base online en la tabla de semáforo interna (mensaje
+  literal "Base de datos restaurada desde Zoo Logic Backup") y `ControlarSaludBD` corre la validación
+  final. Un fallo en cualquiera de estos dos últimos pasos ocurre DESPUÉS de la frase "Invocando al
+  componente SQLDmoWrapper" en el log de ZooBkp (esa frase es del restore SQL puro) — si algún día
+  `RestoreResultado.Evaluar` necesita distinguir "restore SQL ok pero adecuación de ADN Implant
+  falló" de un éxito real de punta a punta, esta es la referencia de dónde buscar esa distinción en
+  el log.
+
 ---
 
 ## SqlDiagnosticoMcp — diagnóstico de SQL Server de solo lectura
