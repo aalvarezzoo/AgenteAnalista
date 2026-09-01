@@ -115,43 +115,38 @@ public class ZlApiClient(HttpClient http, IOptions<ZlApiConfig> cfg, ILogger<ZlA
 
     // ── HTTP helpers ─────────────────────────────────────────────
 
+    /// <summary>Un 404 real es "no encontrado" (devuelve default) — cualquier otro código de error
+    /// (401, 500, etc.) o excepción de red se propaga tal cual, nunca se pisa con default. Antes
+    /// este método atrapaba TODO y devolvía default/lista vacía en cualquier error, lo cual hacía
+    /// indistinguible "no existe" de "credenciales inválidas" o "sin conexión" — un bug real, no
+    /// solo el de sanitización de excepciones del SDK de MCP (ver skill mcp-tools-desarrollo).</summary>
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct)
     {
         var url = $"{_baseUrl}{path}";
-        try
-        {
-            var resp = await http.GetAsync(url, ct);
-            if (!resp.IsSuccessStatusCode)
-            {
-                log.LogWarning("ZL API GET {Url} respondió {Status}", url, resp.StatusCode);
-                return default;
-            }
-            return await resp.Content.ReadFromJsonAsync<T>(JOpts, ct);
-        }
-        catch (Exception ex)
-        {
-            log.LogError(ex, "Error en GET {Url}", url);
+        var resp = await http.GetAsync(url, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return default;
+        if (!resp.IsSuccessStatusCode)
+        {
+            var detail = await resp.Content.ReadAsStringAsync(ct);
+            log.LogError("ZL API GET {Url} respondió {Status}: {Detail}", url, resp.StatusCode, detail);
+            throw new InvalidOperationException($"ZL API GET {url} respondió {(int)resp.StatusCode} {resp.ReasonPhrase}: {detail}");
         }
+        return await resp.Content.ReadFromJsonAsync<T>(JOpts, ct);
     }
 
     private async Task<List<T>> GetListAsync<T>(string url, CancellationToken ct)
     {
-        try
-        {
-            var resp = await http.GetAsync(url, ct);
-            if (!resp.IsSuccessStatusCode)
-            {
-                log.LogWarning("ZL API GET {Url} respondió {Status}", url, resp.StatusCode);
-                return [];
-            }
-            return await resp.Content.ReadFromJsonAsync<List<T>>(JOpts, ct) ?? [];
-        }
-        catch (Exception ex)
-        {
-            log.LogError(ex, "Error en GET {Url}", url);
+        var resp = await http.GetAsync(url, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return [];
+        if (!resp.IsSuccessStatusCode)
+        {
+            var detail = await resp.Content.ReadAsStringAsync(ct);
+            log.LogError("ZL API GET {Url} respondió {Status}: {Detail}", url, resp.StatusCode, detail);
+            throw new InvalidOperationException($"ZL API GET {url} respondió {(int)resp.StatusCode} {resp.ReasonPhrase}: {detail}");
         }
+        return await resp.Content.ReadFromJsonAsync<List<T>>(JOpts, ct) ?? [];
     }
 
     private async Task<T?> PutAsync<T>(string path, T body, CancellationToken ct)
