@@ -21,3 +21,6 @@ desktop.ini
 
 ## Build logs sueltos
 *.build.log
+
+## Reportes de bug generados para cargar en ZL (transitorios, no son conocimiento del repo)
+reportes-bug/
