@@ -37,8 +37,10 @@ public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiCo
     public string ListarPerfiles() =>
         JsonSerializer.Serialize(cfg.Value.Perfiles.Keys);
 
+    private const int LimiteEntidades = 30;
+
     [McpServerTool(Name = "listar_entidades")]
-    [Description("Lista los recursos/entidades disponibles en la API de Dragonfish de un perfil, opcionalmente filtrando por texto en el path o la descripción.")]
+    [Description("Lista los recursos/entidades disponibles en la API de Dragonfish de un perfil, opcionalmente filtrando por texto en el path o la descripción. Si hay más de 30 resultados, se truncan y se avisa — pasar un filtro más específico para ver el resto.")]
     public Task<string> ListarEntidades(
         [Description("Nombre del perfil (ver listar_perfiles), ej. \"TEST\"")] string perfil,
         [Description("Texto opcional para filtrar (ej. \"factura\")")] string? filtro = null) => Envolver(async () =>
@@ -59,7 +61,17 @@ public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiCo
                 || (e.resumen?.Contains(filtro, StringComparison.OrdinalIgnoreCase) ?? false))
             .ToList();
 
-        return JsonSerializer.Serialize(entidades);
+        var truncado = entidades.Count > LimiteEntidades;
+        var resultado = new
+        {
+            total = entidades.Count,
+            entidades = entidades.Take(LimiteEntidades),
+            nota = truncado
+                ? $"Se muestran {LimiteEntidades} de {entidades.Count} — pasá un filtro más específico para ver el resto."
+                : null,
+        };
+
+        return JsonSerializer.Serialize(resultado);
     });
 
     [McpServerTool(Name = "describir_entidad")]
