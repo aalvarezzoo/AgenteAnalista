@@ -57,6 +57,12 @@ una base propia (ej. `DEMO`), aislado:
   cual en la base de prueba, no simularla con un INSERT si se puede hacer por la pantalla real.
 - Confirmar también el caso negativo (sin la condición sospechosa, el problema no aparece) — no
   alcanza con reproducir el positivo.
+- **Controlar por SQL antes Y después de cada acción de UI, no solo al final.** No hacer varios
+  pasos de la reproducción seguidos y recién mirar la tabla al final — consultar el estado real
+  antes de cada cambio y de nuevo después de cada uno. Esto fue lo que permitió detectar a tiempo,
+  en la práctica, que una acción de la UI había vaciado una tabla completa sin que se pidiera — si
+  solo se hubiera mirado al final, esa pérdida de datos hubiera pasado desapercibida y podría
+  haberse confundido con parte del comportamiento del bug.
 
 Esta reproducción aislada es la validación más fuerte antes de escribir el reporte — más confiable
 que la lectura de código sola.

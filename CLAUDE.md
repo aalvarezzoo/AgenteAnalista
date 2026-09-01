@@ -117,7 +117,16 @@ Config de infraestructura (no de negocio de un cliente puntual) vive aparte, en
   (ej. `Din_Busqueda5AD.cs`) resuelven el puesto con `Environment.MachineName` directo, ignorando
   ese modo y esa caché. Al investigar código relacionado a parámetros "por puesto", no asumir que
   todo el sistema resuelve el puesto de la misma forma — confirmar cuál mecanismo aplica en cada
-  lugar puntual.
+  lugar puntual. **Consecuencia práctica a tener en cuenta:** si la instalación usa "modo por
+  usuario" (no por equipo), un parámetro guardado desde la pantalla normal puede terminar escrito
+  en un puesto distinto al que una consulta puntual lee — el síntoma se ve como "el parámetro no
+  hace nada", aunque en realidad sí se guardó, solo que en otro lado.
+- **Los parámetros "por puesto" pueden tener un valor por defecto codificado (`.Default`) que se
+  auto-crea recién la primera vez que se lee el parámetro, no al instalar el sistema** — confirmado
+  en `Din_Parametros.prg` (`.Default = .T.` en la definición del parámetro) y en la práctica: en una
+  base recién creada, la fila en `PARAMETROS.PUESTO` no existe hasta que alguien abre la pantalla
+  correspondiente por primera vez. No asumir que un valor "que ya viene así" fue sembrado por un
+  script de instalación.
 
 ## Tabla COMPROBANTEV — consideraciones al hacer cambios
 
@@ -187,6 +196,14 @@ apoyo al análisis de incidentes. **Nunca modificar ni eliminar nada que sea có
 Dragonfish**, sea cual sea su ubicación, salvo que la persona cambie explícitamente esta regla en
 una conversación futura. Esto aplica siempre, en cualquier PC donde se use AgenteAnalista — no es
 una preferencia de sesión.
+
+**Gotcha de sintaxis al leer código VFP (parte de este código fuente es legacy VFP, no solo C#):
+`&&` es delimitador de comentario, NO "AND" lógico** (el AND lógico en VFP es `AND`/`.AND.`). Leer
+`if A && B` como "if A and B" lleva a una conclusión equivocada sobre qué rama de código se
+ejecuta — pasó en la práctica: una rama se descartó como "código muerto" hasta que una prueba real
+demostró que sí se ejecutaba, y releyendo con este criterio quedó claro por qué. Ante cualquier
+condicional VFP con `&&` en el medio, tratar todo lo que sigue como comentario, no como parte de la
+condición.
 
 ---
 
