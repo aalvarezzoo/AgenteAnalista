@@ -105,6 +105,19 @@ Config de infraestructura (no de negocio de un cliente puntual) vive aparte, en
   cualquier tabla de Dragonfish: cruzar contra una fila real creada por el propio sistema antes de
   asumir qué columnas hacen falta y qué valores llevan (ver el caso de `EMP` más abajo, donde asumir
   mal produjo dos campos incorrectos hasta comparar contra una fila real).
+- **`CLI.GLOBALID`** (no vacío) identifica un cliente "centralizado" — pero **no implica
+  necesariamente que exista un agrupamiento de bases configurado**; no asumir que siempre viene
+  acompañado de esa configuración.
+- **`PUESTOS` y `PARAMETROS.PUESTO`** (config de parámetros por estación de trabajo) viven en
+  `DRAGONFISH_ZOOLOGICMASTER`, no en las bases de sucursal — buscarlos ahí, no en la base de
+  negocio del cliente.
+- **Dragonfish tiene más de un mecanismo de resolución de "puesto actual" en distintas partes del
+  código** — confirmado investigando un bug real: `ParametroPuestoSqlServer.ObtenerIdPuesto()`
+  resuelve con caché de sesión y respeta el modo usuario/equipo, pero algunas consultas generadas
+  (ej. `Din_Busqueda5AD.cs`) resuelven el puesto con `Environment.MachineName` directo, ignorando
+  ese modo y esa caché. Al investigar código relacionado a parámetros "por puesto", no asumir que
+  todo el sistema resuelve el puesto de la misma forma — confirmar cuál mecanismo aplica en cada
+  lugar puntual.
 
 ## Tabla COMPROBANTEV — consideraciones al hacer cambios
 

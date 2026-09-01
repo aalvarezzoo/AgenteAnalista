@@ -64,8 +64,22 @@ public sealed class GestionBackupsTools
         return @"C:\Dragonfish";
     }
 
+    /// <summary>Las 3 bases "por defecto" de cualquier instalación de Dragonfish (confirmado en
+    /// el código fuente, DatosEstructuraAdnPorDefecto.xml) no son todas iguales: DEMO es de tipo
+    /// Sucursal (una base de cliente más, por eso sí pasa por el alta en Emp), pero ADNIMPLANT y
+    /// ZOOLOGICMASTER tienen Ubicaciones distintas (ADNIMPLANT/infraestructura) — Dragonfish nunca
+    /// las da de alta vía Emp como si fueran una sucursal de cliente. Restaurarlas no debería
+    /// depender de ese chequeo. Confirmado en la práctica: forzar el alta de ADNIMPLANT vía
+    /// dar_alta_base_para_restore falla (EMP.EMPCOD es más corto que "ADNIMPLANT") — la falla en
+    /// sí ya era una señal de que ese camino no correspondía para estas dos bases.</summary>
+    private static readonly HashSet<string> BasesSinChequeoDeEmp = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ADNIMPLANT",
+        "ZOOLOGICMASTER",
+    };
+
     [McpServerTool(Name = "restaurar_backup")]
-    [Description("Restaura de forma silenciosa (sin abrir ninguna ventana) el backup de UNA base puntual, buscando en la carpeta dada el .zip cuyo nombre de base coincida. Restaura SOLO la base pedida — si la carpeta tiene backups de otras bases, no se tocan. Antes de restaurar chequea si la base ya está registrada en Dragonfish (tabla Emp): si no lo está, NO restaura — hace falta darla de alta primero con 'dar_alta_base_para_restore' (y confirmar explícitamente con la persona antes de llamarlo).")]
+    [Description("Restaura de forma silenciosa (sin abrir ninguna ventana) el backup de UNA base puntual, buscando en la carpeta dada el .zip cuyo nombre de base coincida. Restaura SOLO la base pedida — si la carpeta tiene backups de otras bases, no se tocan. Antes de restaurar chequea si la base ya está registrada en Dragonfish (tabla Emp): si no lo está, NO restaura — hace falta darla de alta primero con 'dar_alta_base_para_restore' (y confirmar explícitamente con la persona antes de llamarlo). Excepción: ADNIMPLANT y ZOOLOGICMASTER nunca pasan por este chequeo — no son bases de tipo Sucursal, Dragonfish no las da de alta en Emp.")]
     public string RestaurarBackup(
         [Description("Carpeta donde buscar el .zip de backup, ej. C:\\1690552")] string carpeta,
         [Description("Nombre exacto de la base a restaurar (como aparece en el nombre del .zip), ej. DRAGONFISH_NCENTRO")] string nombreBase)
@@ -85,21 +99,24 @@ public sealed class GestionBackupsTools
 
         var codigo = EmpHelper.LimpiarCodigo(nombreBase);
 
-        try
+        if (!BasesSinChequeoDeEmp.Contains(codigo))
         {
-            var instanciaSql = ResolverInstanciaSql();
-            using var conn = EmpHelper.AbrirConexion(instanciaSql);
-            var esquema = EmpHelper.ResolverEsquemaEmp(conn);
-
-            if (!EmpHelper.ExisteEnEmp(conn, esquema, codigo))
+            try
             {
-                return $"La base '{codigo}' no está registrada en esta instalación de Dragonfish (no aparece en Emp) — no se restauró nada. "
-                     + "Si corresponde crearla, confirmá con la persona y después llamá a 'dar_alta_base_para_restore'; recién ahí se puede reintentar este restore.";
+                var instanciaSql = ResolverInstanciaSql();
+                using var conn = EmpHelper.AbrirConexion(instanciaSql);
+                var esquema = EmpHelper.ResolverEsquemaEmp(conn);
+
+                if (!EmpHelper.ExisteEnEmp(conn, esquema, codigo))
+                {
+                    return $"La base '{codigo}' no está registrada en esta instalación de Dragonfish (no aparece en Emp) — no se restauró nada. "
+                         + "Si corresponde crearla, confirmá con la persona y después llamá a 'dar_alta_base_para_restore'; recién ahí se puede reintentar este restore.";
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            return $"No se pudo verificar en SQL si la base '{codigo}' está registrada — no se restauró nada por las dudas. Detalle: {ex.Message}";
+            catch (Exception ex)
+            {
+                return $"No se pudo verificar en SQL si la base '{codigo}' está registrada — no se restauró nada por las dudas. Detalle: {ex.Message}";
+            }
         }
 
         return RestaurarUno(zip, nombreBase);
