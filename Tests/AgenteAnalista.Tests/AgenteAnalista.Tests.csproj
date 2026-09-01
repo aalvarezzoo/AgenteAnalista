@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\McpServers\DragonfishApiMcp\DragonfishApiMcp.csproj" />
     <ProjectReference Include="..\..\McpServers\GestionBackupsMcp\GestionBackupsMcp.csproj" />
     <ProjectReference Include="..\..\McpServers\SqlDiagnosticoMcp\SqlDiagnosticoMcp.csproj" />
+    <ProjectReference Include="..\..\McpServers\ZNubeEcommerceMcp\ZNubeEcommerceMcp.csproj" />
   </ItemGroup>
 
 </Project>

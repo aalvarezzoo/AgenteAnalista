@@ -118,38 +118,49 @@ public sealed class GestionBackupsTools
         [Description("Carpeta donde buscar el .zip de backup, ej. C:\\1690552")] string carpeta,
         [Description("Nombre exacto de la base a restaurar (como aparece en el nombre del .zip), ej. DRAGONFISH_NCENTRO")] string nombreBase)
     {
-        if (!Directory.Exists(carpeta))
-            return $"La carpeta '{carpeta}' no existe.";
-
-        var zips = Directory.GetFiles(carpeta, "*.zip");
-        var zip = NombreBackup.ElegirZip(zips, nombreBase);
-
-        if (zip is null)
-            return $"No se encontró ningún .zip para la base '{nombreBase}' en '{carpeta}'. (Otros .zip que pueda haber en la carpeta no se tocan salvo que se pidan explícitamente.)";
-
-        var codigo = EmpHelper.LimpiarCodigo(nombreBase);
-
-        if (!BasesSinChequeoDeEmp.Contains(codigo))
+        // Envuelve TODO el cuerpo, no solo el chequeo de Emp — Directory.GetFiles y lo que
+        // dispare RestaurarUno (WaitForExit/lectura de log) también pueden tirar, y sin este
+        // try/catch el SDK de MCP sanitiza esa excepción a un mensaje genérico inútil (mismo
+        // gotcha ya documentado en la skill mcp-tools-desarrollo para Process.Start).
+        try
         {
-            try
-            {
-                var instanciaSql = ResolverInstanciaSql();
-                using var conn = EmpHelper.AbrirConexion(instanciaSql);
-                var esquema = EmpHelper.ResolverEsquemaEmp(conn);
+            if (!Directory.Exists(carpeta))
+                return $"La carpeta '{carpeta}' no existe.";
 
-                if (!EmpHelper.ExisteEnEmp(conn, esquema, codigo))
+            var zips = Directory.GetFiles(carpeta, "*.zip");
+            var zip = NombreBackup.ElegirZip(zips, nombreBase);
+
+            if (zip is null)
+                return $"No se encontró ningún .zip para la base '{nombreBase}' en '{carpeta}'. (Otros .zip que pueda haber en la carpeta no se tocan salvo que se pidan explícitamente.)";
+
+            var codigo = EmpHelper.LimpiarCodigo(nombreBase);
+
+            if (!BasesSinChequeoDeEmp.Contains(codigo))
+            {
+                try
                 {
-                    return $"La base '{codigo}' no está registrada en esta instalación de Dragonfish (no aparece en Emp) — no se restauró nada. "
-                         + "Si corresponde crearla, confirmá con la persona y después llamá a 'dar_alta_base_para_restore'; recién ahí se puede reintentar este restore.";
+                    var instanciaSql = ResolverInstanciaSql();
+                    using var conn = EmpHelper.AbrirConexion(instanciaSql);
+                    var esquema = EmpHelper.ResolverEsquemaEmp(conn);
+
+                    if (!EmpHelper.ExisteEnEmp(conn, esquema, codigo))
+                    {
+                        return $"La base '{codigo}' no está registrada en esta instalación de Dragonfish (no aparece en Emp) — no se restauró nada. "
+                             + "Si corresponde crearla, confirmá con la persona y después llamá a 'dar_alta_base_para_restore'; recién ahí se puede reintentar este restore.";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return $"No se pudo verificar en SQL si la base '{codigo}' está registrada — no se restauró nada por las dudas. Detalle: {ex.Message}";
                 }
             }
-            catch (Exception ex)
-            {
-                return $"No se pudo verificar en SQL si la base '{codigo}' está registrada — no se restauró nada por las dudas. Detalle: {ex.Message}";
-            }
-        }
 
-        return RestaurarUno(zip, nombreBase);
+            return RestaurarUno(zip, nombreBase);
+        }
+        catch (Exception ex)
+        {
+            return $"✗ No se pudo procesar la restauración de '{nombreBase}' en '{carpeta}'. Detalle: {ex.Message}";
+        }
     }
 
     [McpServerTool(Name = "dar_alta_base_para_restore")]
@@ -273,20 +284,31 @@ public sealed class GestionBackupsTools
 
         using (proc)
         {
-            proc.WaitForExit();
+            try
+            {
+                proc.WaitForExit();
 
-            var logNuevo = LeerLogNuevo(posicionPrevia);
-            var (exito, huboRestauracionReal) = RestoreResultado.Evaluar(proc.ExitCode, logNuevo);
+                var logNuevo = LeerLogNuevo(posicionPrevia);
+                var (exito, huboRestauracionReal) = RestoreResultado.Evaluar(proc.ExitCode, logNuevo);
 
-            if (exito && !huboRestauracionReal)
-                return $"⚠ {nombreArchivo} → {nombreBase}: ZooBkp reportó éxito, pero no se detectó que haya restaurado datos de verdad — probablemente '{nombreBase}' no está registrada en esta instalación de Dragonfish (no crea bases nuevas). Revisar antes de asumir que quedó restaurada.";
+                if (exito && !huboRestauracionReal)
+                    return $"⚠ {nombreArchivo} → {nombreBase}: ZooBkp reportó éxito, pero no se detectó que haya restaurado datos de verdad — probablemente '{nombreBase}' no está registrada en esta instalación de Dragonfish (no crea bases nuevas). Revisar antes de asumir que quedó restaurada.";
 
-            var estado = exito ? "✓" : "✗";
-            var detalle = exito
-                ? "restaurada con éxito"
-                : $"código de salida {proc.ExitCode}, revisar log — {(logNuevo.Length == 0 ? "no se pudo leer el log nuevo" : ResumenLog(logNuevo))}";
+                var estado = exito ? "✓" : "✗";
+                var detalle = exito
+                    ? "restaurada con éxito"
+                    : $"código de salida {proc.ExitCode}, revisar log — {(logNuevo.Length == 0 ? "no se pudo leer el log nuevo" : ResumenLog(logNuevo))}";
 
-            return $"{estado} {nombreArchivo} → {nombreBase}: {detalle}";
+                return $"{estado} {nombreArchivo} → {nombreBase}: {detalle}";
+            }
+            catch (Exception ex)
+            {
+                // WaitForExit/LeerLogNuevo pueden tirar (log bloqueado/rotado justo en ese
+                // instante, etc.) — ZooBkp ya arrancó, así que no se puede asumir que no pasó
+                // nada; se avisa que el resultado quedó sin confirmar en vez de perder el detalle
+                // real en un mensaje genérico del SDK.
+                return $"✗ {nombreArchivo} → {nombreBase}: ZooBkp se inició pero no se pudo confirmar el resultado (no se pudo esperar a que termine o leer su log). Revisar manualmente. Detalle: {ex.Message}";
+            }
         }
     }
 

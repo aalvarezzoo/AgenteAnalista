@@ -23,6 +23,7 @@ public sealed class ZNubeEcommerceTools(HttpClient http, IOptions<ZNubeEcommerce
 {
     private const string BaseUrl = "https://api.znube.com.ar/ECommerceIntegration";
     private const int ECommerceTypeMercadoLibre = 1;
+    private const int LimiteMaximoOrdenes = 100;
 
     private static async Task<string> Envolver(Func<Task<string>> accion)
     {
@@ -65,6 +66,7 @@ public sealed class ZNubeEcommerceTools(HttpClient http, IOptions<ZNubeEcommerce
         [Description("ID de orden desde el cual empezar a traer")] long fromOrderId,
         [Description("Cantidad máxima de órdenes a traer")] int limit) => Envolver(async () =>
     {
+        limit = Math.Clamp(limit, 1, LimiteMaximoOrdenes);
         var storeId = ResolverStoreId(perfil);
         var url = $"{BaseUrl}/GetOrders?storeId={storeId}&eCommerceType={ECommerceTypeMercadoLibre}&fromOrderId={fromOrderId}&limit={limit}";
         return await LlamarZNube(token, url);
@@ -78,6 +80,7 @@ public sealed class ZNubeEcommerceTools(HttpClient http, IOptions<ZNubeEcommerce
         [Description("ID de orden desde el cual empezar a traer")] long fromOrderId,
         [Description("Cantidad máxima de órdenes a traer")] int limit) => Envolver(async () =>
     {
+        limit = Math.Clamp(limit, 1, LimiteMaximoOrdenes);
         var storeId = ResolverStoreId(perfil);
         var url = $"{BaseUrl}/GetOrdersHistory?storeId={storeId}&eCommerceType={ECommerceTypeMercadoLibre}&fromOrderId={fromOrderId}&limit={limit}";
         return await LlamarZNube(token, url);
@@ -103,6 +106,7 @@ public sealed class ZNubeEcommerceTools(HttpClient http, IOptions<ZNubeEcommerce
         [Description("ID de orden desde el cual empezar a traer")] long fromOrderId,
         [Description("Cantidad máxima de órdenes a traer")] int limit) => Envolver(async () =>
     {
+        limit = Math.Clamp(limit, 1, LimiteMaximoOrdenes);
         var storeId = ResolverStoreId(perfil);
         var url = $"{BaseUrl}/GetClaimsHistory?storeId={storeId}&eCommerceType={ECommerceTypeMercadoLibre}&fromOrderId={fromOrderId}&limit={limit}";
         return await LlamarZNube(token, url);
@@ -120,8 +124,12 @@ public sealed class ZNubeEcommerceTools(HttpClient http, IOptions<ZNubeEcommerce
         using var resp = await http.SendAsync(req);
         var raw = await resp.Content.ReadAsStringAsync();
 
+        // McpException (no un string normal) para que un error real de zNube (token vencido,
+        // storeId inválido, 500 del lado de ellos) se vea como un error para el modelo — mismo
+        // patrón Envolver/McpException que el resto del repo, en vez de devolver un "resultado"
+        // que parece exitoso con el error adentro del texto.
         if (!resp.IsSuccessStatusCode)
-            return $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}\n{PrettyJson(raw)}";
+            throw new McpException($"zNube respondió HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}: {PrettyJson(raw)}");
 
         return PrettyJson(raw);
     }
