@@ -246,6 +246,12 @@ en vez de ir a ciegas por prueba y error.
 **Importante:** revisarlo solo cuando la persona lo pida o lo sugiera explícitamente — no ir por
 iniciativa propia sin que se pida.
 
+**Si `C:\IADragon2028` no existe en la máquina donde se está corriendo** (la ruta es la de la PC de
+AALVAREZ — en otra máquina puede estar en otro disco/carpeta, o no estar checkeado todavía),
+**preguntarle a la persona dónde está el checkout real** en vez de asumir que no existe o de salir
+a buscarlo a ciegas por todo el disco. Una vez que confirme la ruta, usarla para el resto de esa
+conversación (no hace falta volver a preguntar dentro de la misma sesión).
+
 **Regla dura — SOLO LECTURA:** el código fuente de Dragonfish (hoy en `C:\IADragon2028`, pero la
 regla es sobre el código en sí, no sobre esa ruta puntual — si en el futuro está en otro lado o hay
 una copia/checkout en otra carpeta, aplica igual) se usa exclusivamente para *leer/entender* como
