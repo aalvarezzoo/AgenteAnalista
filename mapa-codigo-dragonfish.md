@@ -30,14 +30,22 @@ entrada nueva (ver paso 3 de la skill `investigar-bug-de-codigo`).
   vive en `Organic.BusinessLogic`), comparte lógica entre UI y API salvo que algo puntual la
   desvíe.
 - **`Kontroler<Algo>` / `Tra_Kontroler<Algo>`** — controlador de una **pantalla** (validaciones de
-  formulario VFP), no de la entidad — si algo se valida acá y en ningún otro lado, la API (que no
-  pasa por ninguna pantalla) no hereda esa validación. Confirmado en la práctica (ver "Movimiento
-  de stock" más abajo).
-- **`ColorYTalle` vs `Feline`** — dos productos con árboles de código paralelos y mayormente
-  espejados: `Organic.Dragonfish` (ColorYTalle) y `Organic.Feline` (Feline/Felino). Un mismo
-  concepto de negocio suele tener un archivo casi homónimo en cada árbol (ej.
-  `entcolorytalle_movimientodestock.PRG` vs `Ent_MovimientoDeStock.PRG`) — confirmar en cuál
-  vive el bug antes de asumir que aplica a ambos.
+  formulario VFP), no de la entidad — si algo se valida ÚNICAMENTE acá, la API (que no pasa por
+  ninguna pantalla) no hereda esa validación puntual. **Ojo:** esto no significa que la entidad no
+  tenga NINGUNA lógica de negocio relacionada — confirmado en la práctica (ver "Movimiento de
+  stock" más abajo) que una primera lectura del Kontroler llevó a asumir que era "el único lugar
+  que valida algo", cuando en realidad la entidad sí tenía su propia lógica (de transferencia, en
+  ese caso) en una clase base distinta que no se había revisado todavía. Nunca dar por cerrada una
+  búsqueda de "dónde se valida X" solo por no encontrarlo en la entidad hija — subir por toda la
+  cadena de herencia antes de concluir que algo "solo se valida en la pantalla".
+- **`ColorYTalle` vs `Feline`** — dos productos con árboles de código separados
+  (`Organic.Dragonfish` y `Organic.Feline`), pero **no asumir que son espejos independientes**: una
+  clase de ColorYTalle puede heredar directamente de una clase base que vive físicamente en el
+  árbol de Feline (confirmado con `Ent_MovimientoDeStock` — ver "Movimiento de stock" más abajo,
+  donde la cadena real de herencia cruza de un árbol al otro). Antes de asumir que un concepto tiene
+  dos implementaciones paralelas e independientes, subir la cadena de herencia (`define class X as
+  Y of Y.prg`) del archivo del lado que se está mirando — puede resolver a un archivo del OTRO
+  árbol.
 - **`&&` en código VFP es delimitador de comentario, NO "AND" lógico** (el AND real es
   `AND`/`.AND.`). Leer `if A && B` como "if A and B" lleva a una conclusión equivocada sobre qué
   rama se ejecuta — pasó en la práctica (ver "Restore de backups" más abajo).
@@ -123,23 +131,62 @@ Ya documentado en CLAUDE.md (sección de convenciones de esquema) — acá el de
 
 ## Movimiento de stock, transferencias y buzones
 
-Investigado el 2026-09-02 para el bug 15939 ("API marca ENVIADO sin buzón asociado") — **no
-reproducido** en la prueba real (ver conversación), pero la hipótesis de código queda documentada
-porque puede ser el punto de partida correcto igual:
+Investigado el 2026-09-02 para el bug 15939 ("API marca ENVIADO sin buzón asociado"). Primera
+pasada (por nombre/keyword) llevó a una conclusión incompleta — quedó corregida acá después de
+subir la cadena de herencia completa (ver nota en "Convenciones de nombres" sobre `Kontroler` y
+ColorYTalle/Feline). **La API POST 15939 sigue sin reproducirse** en la prueba real hecha; el
+motivo de por qué no reprodujo sigue sin resolver (no es por un flag de entorno de desarrollo —
+confirmado explícitamente que este equipo siempre trabaja contra el producto final, no contra un
+build de desarrollo).
 
-- **`Organic.Dragonfish/Organic.BusinessLogic/CENTRALSS/ColorYTalle/Ventas/entcolorytalle_movimientodestock.PRG`**
-  — entidad de negocio central. Sin ninguna referencia a `ESTTRANS` ni a buzón.
+**Entidades/pantalla (nivel superficial — acá NO vive la decisión real):**
 - **`Organic.Dragonfish/Organic.Generated/Generados/Din_EntidadMovimientodestock_REST.prg`** —
-  entidad REST generada. Tampoco tiene lógica de `ESTTRANS`/buzón.
+  mapeador DTO↔entidad genérico (`ServicioRestOperacionesEntidad` of
+  `Organic.Core/Organic.BusinessLogic/CENTRALSS/Nucleo/API/ServicioRestOperacionesEntidad.prg`).
+  Solo copia campos del JSON a la entidad (`SetearEntidadConDatosModelo`) y al final llama
+  `loEntidad.Grabar()` — no tiene ninguna lógica de `ESTTRANS`/buzón.
+- **`Organic.Dragonfish/Organic.BusinessLogic/CENTRALSS/ColorYTalle/Ventas/entcolorytalle_movimientodestock.PRG`**
+  (`EntColorYTalle_MovimientoDeStock`) — hereda de **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/Ventas/Ent_MovimientoDeStock.PRG`**
+  (cruza de árbol — ver nota de convenciones). Sin lógica propia de transferencia, la hereda de ahí.
 - **`Organic.Dragonfish/Organic.BusinessLogic/CENTRALSS/ColorYTalle/_Base/tra_kontrolertransferenciamovimientodestock.prg`**
-  (`Tra_KontrolerTransferenciaMovimientoDeStock`) — **el único lugar del código que valida** si el
-  origen/destino tiene un buzón asociado (`ValidarBuzonSegunOrigenDeDatos` /
-  `ValidarOrigenDestinoDeBuzonEspecifico`), y es el controlador de una PANTALLA (usa
-  `ObtenerControl("BOXESDATO")`, un listbox) — la API, al no pasar por ninguna pantalla, no
-  ejecuta este chequeo. `ESTTRANS` es un campo demasiado genérico para gerpear directo (~250
-  archivos lo tocan, es parte del bloque de auditoría de transferencias que se repite en casi toda
-  tabla) — no se encontró todavía dónde se decide su valor real fuera de esta pantalla.
-- **Tablas**: `ZooLogic.MSTOCK`/`DETMSTOCK` (base de negocio — cabecera/detalle del movimiento,
-  `ESTTRANS`/`ORIGDEST`/`DIRMOV` en `MSTOCK`); `PUESTO.AGRUPABUZON` (definición de buzón, en
-  `DRAGONFISH_ZOOLOGICMASTER`); `PUESTO.AGRUPAG`/`AGRUPAGB` (agrupamientos que incluyen buzones —
-  vínculo exacto buzón↔origen/destino todavía sin terminar de confirmar).
+  (`Tra_KontrolerTransferenciaMovimientoDeStock`) — controlador de la PANTALLA de transferencia
+  manual (usa `ObtenerControl("BOXESDATO")`). Valida que el buzón elegido A MANO coincida con el
+  origen/destino ANTES de guardar — bloquea el guardado si no coincide. Es una validación previa
+  de UI, **no** es el mecanismo que decide `ESTTRANS` después de grabar (ver más abajo) — son dos
+  cosas distintas que conviven.
+
+**La cadena real que decide si se transfiere (y por lo tanto marcaría `ESTTRANS`), encontrada
+subiendo la herencia desde `Ent_MovimientoDeStock`:**
+
+1. **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/Ventas/Ent_MovimientoDeStock.PRG`** —
+   `AccionesAutomatizadas(tcMetodo)`: cuando `tcMetodo == "DESPUESDEGRABAR"`, solo dispara el paso
+   siguiente si `this.lEntidadInstanciadaPorFormulario` **o** `this.lGeneraDesdePicking` **o**
+   `this.verificarContexto("R")` — condición todavía sin confirmar si la cumple una entidad creada
+   desde la API (no desde un formulario). También define `CrearItemTransferencia()`: arma un
+   `ItemFiltroTransferencia` y, si `OrigenDestino_Pk` no está vacío, llama a
+   `this.oEntidadBuzon.CompletarItemTransferencia(...)` para resolver `cBuzon`/`cBaseDeDatos`; si
+   ninguno resuelve, intenta `IntentarSeteoDeBaseDeDatosComoDestino`.
+2. **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/_base/EmpaquetarComprobanteDespuesDeGrabar.PRG`**
+   — `DebeEmpaquetarElComprobante(tlElComprobanteEstaHabilitado)`: devuelve directamente `.f.`
+   (nunca empaqueta) si `_screen.zoo.lDesarrollo` o `_screen.zoo.EsBuildAutomatico` son verdaderos y
+   no está forzado por `goServicios.Registry.nucleo.Transferencias.ForzarElUsoDelAaoEnTiempoDeDesarrollo`
+   — **no aplica en este equipo** (siempre se trabaja contra producto final, nunca contra un build
+   de desarrollo), así que en la práctica acá devuelve directamente el parámetro
+   `goServicios.Parametros.Felino.Transferencias.MovimientoDeStock.EmpaquetarComprobanteDespuesDeGrabar`.
+   Si pasa, `Empaquetar()` llama a `toEntidad.CrearItemTransferencia()` y, solo si `cBuzon` o
+   `cBaseDeDatos` no vinieron vacíos, llama a
+   `goServicios.Transferencias.EnviarTransferenciaSegunItemFiltro(...)` — ahí (todavía sin abrir)
+   es donde debería vivir el seteo real de `ESTTRANS`, no en el Kontroler de pantalla.
+
+**Pendiente de confirmar** (no se llegó a verificar en esta investigación):
+- Si una entidad creada vía API queda con `lEntidadInstanciadaPorFormulario = .t.` o no — de eso
+  depende si el paso 1 siquiera dispara el empaquetado para un POST.
+- Qué hace exactamente `goServicios.Transferencias.EnviarTransferenciaSegunItemFiltro` con
+  `ESTTRANS` — todavía no se abrió ese archivo.
+- Por qué la prueba real (POST vs. manual, mismo `OrigenDestino_Pk`) no mostró diferencia — con
+  esta cadena más completa, sigue siendo una pregunta abierta, no resuelta por un flag de entorno.
+
+**Tablas**: `ZooLogic.MSTOCK`/`DETMSTOCK` (base de negocio — cabecera/detalle del movimiento,
+`ESTTRANS`/`ORIGDEST`/`DIRMOV` en `MSTOCK`); `PUESTO.AGRUPABUZON` (definición de buzón, en
+`DRAGONFISH_ZOOLOGICMASTER`); `PUESTO.AGRUPAG`/`AGRUPAGB` (agrupamientos que incluyen buzones —
+vínculo exacto buzón↔origen/destino todavía sin terminar de confirmar).
