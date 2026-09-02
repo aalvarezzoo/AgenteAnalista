@@ -107,6 +107,14 @@ la base restaurada:
 - **`.../Nucleo/_Base/aplicacionbase.prg`** — `aArchivosIni[1]` = `Aplicacion.INI`, `aArchivosIni[2]`
   = `DataConfig.INI` (mismo archivo físico que se edita a mano, no dos archivos distintos).
 
+**Pendiente sin resolver:** por qué en la práctica hizo falta corregir `SeguridadIntegrada=SI` dos
+veces (login de acceso a los datos, y de nuevo al entrar con usuario/clave) en vez de una sola.
+Se descartó la hipótesis de "dos puntos de conexión independientes" — el único otro
+`ObtenerIdConexion` encontrado (`serviciodatos.prg`) es un método sin relación, de otra clase, que
+solo devuelve un entero cacheado (`this.nIdConexion`), no arma ninguna conexión. No se encontró
+todavía el código puntual de la pantalla de login que abre la segunda conexión — seguir desde ahí
+si se retoma esta pregunta.
+
 ---
 
 ## Resolución de "puesto actual" y parámetros por puesto
@@ -114,13 +122,21 @@ la base restaurada:
 Ya documentado en CLAUDE.md (sección de convenciones de esquema) — acá el detalle de código:
 
 - **`Components.Buscador/ZooLogicSA.Buscador.ColorYTalle.Generados/Din_Busqueda5AD.cs`**,
-  método `ObtenerConsultaPorBaseDeDatos()` — resuelve el puesto actual con
-  `Environment.MachineName` directo, **ignorando** la caché de sesión y el modo usuario/equipo que
-  sí respeta el mecanismo "normal" (`ParametroPuestoSqlServer.ObtenerIdPuesto()` — clase
-  mencionada en el código, ubicación exacta todavía sin confirmar, buscar por nombre de clase la
-  próxima vez). Este mismo archivo es la causa raíz del bug real de "cheques de terceros
-  repetidos en consulta de deuda" (ver `reportes-bug/cheques-terceros-repetidos-consulta-deuda.md`):
-  la subquery `cli` fuerza `CLCOD=''` para clientes centralizados, y a diferencia del join de
+  método `ObtenerCondicionParametroElsaldoadeudadonopuedeexceder()` (y la equivalente de cheques
+  de terceros) — resuelve el puesto actual con `Environment.MachineName` directo (línea con
+  `idpuesto = (SELECT [ID] FROM [ZooLogic].[PUESTOS] WHERE [Nombre] = '" + Environment.MachineName + "')`),
+  **ignorando por completo** la caché de sesión y el modo usuario/equipo.
+- **`Organic.Core/Organic.BusinessLogic/CENTRALSS/Nucleo/Parametro/parametropuestosqlserver.PRG`**,
+  método `ObtenerIdPuesto()` — el mecanismo "normal": resuelve el nombre vía
+  `goServicios.Librerias.ObtenerNombrePuesto()` (en `.../Nucleo/Dlls/Generales/librerias.prg`) y
+  cachea `.IdPuesto` en el propio objeto Parametro (por eso "caché de sesión"). `ObtenerNombrePuesto()`
+  sí respeta `lModoPuestoPorUsuarioTerminal` (modo usuario vs. equipo) — confirmado, y de paso otro
+  `&&` real de VFP en esa función (`if this.lModoPuestoPorUsuarioTerminal && _screen.zoo.app.lEsEntornoCloud`
+  — todo lo que sigue al `&&` es comentario, la condición real es solo `lModoPuestoPorUsuarioTerminal`).
+  Contraste confirmado en los dos lados: este mecanismo respeta el modo, `Din_Busqueda5AD.cs` no.
+- Este mismo `Din_Busqueda5AD.cs` es la causa raíz del bug real de "cheques de terceros repetidos
+  en consulta de deuda" (ver `reportes-bug/cheques-terceros-repetidos-consulta-deuda.md`): la
+  subquery `cli` fuerza `CLCOD=''` para clientes centralizados, y a diferencia del join de
   `CtaCte` (que tiene un fallback por `GlobalId`), el join de `CHEQUE` no lo tiene.
 - **`Organic.Dragonfish/Organic.Generated/Generados/Din_Parametros.prg`** (generado por producto —
   existe un equivalente por cada árbol: `Organic.Feline`, `Organic.ZL`, etc.) — los parámetros
