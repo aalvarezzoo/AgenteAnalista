@@ -56,6 +56,34 @@ Para cerrados agregar: `&Estado=Cerrados&FechaTareaCierreDesde=MM/DD/YYYY&FechaT
   vacío, imprimir la cadena completa de `.Name` subiendo por `.ParentNode` para confirmar cuántos
   saltos hacen falta antes de asumir un bug en el attribute.
 
+### Consultar UN incidente puntual por número
+
+**Uso mucho menos frecuente que el reporte de arriba** — el de arriba (`Iyd incidentes` por
+`DuenoTarea`/`Estado`) es el que se usa en la diaria para ver qué hay pendiente. Este otro es
+puntual: sirve para cuando la persona da un número de incidente concreto para analizarlo de punta a
+punta (ese es justamente el objetivo de largo plazo del agente) — no para armar un listado.
+
+```powershell
+$url = "http://reportes03/ReportServer?%2FSal%2FMesa%20de%20ayuda%2FIncidentes%2FIncidente&rs:Command=Render&rs:Format=XML&rs:ClearSession=True&incid=1690552"
+$client = New-Object System.Net.WebClient
+$client.UseDefaultCredentials = $true
+$xml = $client.DownloadString($url)
+```
+
+**Namespace XML del reporte:** `Incidente`. Sin niveles anidados por resolver (a diferencia del
+reporte de arriba) — es un solo incidente, la estructura es plana:
+
+- **Raíz `<Report>`**: atributos `incid` (ej. `"Incidente n°1690552"`), `registro`, `puesto`, `tipo`,
+  `clienteDet`, `subTipo`, `rzDet`, `registro2`, y **`detalle`** — el texto completo del incidente con
+  todo el historial de la investigación (puede ser varios miles de caracteres, con logs de error
+  pegados tal cual).
+- **`Details` (repetido) — "Interacciones"**: `Ctipcont1` (tipo de contacto: `ENT`/`AREM`/`SAL`),
+  `Regpor`, `Cfecini`, `Choraini`, `Contct1`, `Nota`.
+- **`Details1` (repetido) — "Tareas"**: `Numero`, `Ctitulo`, `Fechai`, `Fechaf`, **`Asignt`** (dueño
+  de la tarea — acá es donde aparece `MASTERHELP`), **`Ncierre`** (`0` = todavía sin cerrar),
+  `Fechac`, `Cerrot`. Da el historial de tareas de ESE incidente puntual sin tener que cruzar con el
+  otro reporte.
+
 ## Bases de datos SQL Server
 
 Las bases de clientes siempre tienen el prefijo `DRAGONFISH_` seguido del nombre de la base.
