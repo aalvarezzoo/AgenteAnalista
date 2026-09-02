@@ -38,6 +38,13 @@ priorizar precisión sobre completitud — si algo no se puede confirmar con evi
 (por ejemplo, por qué una excepción se atraja siempre a un mensaje genérico, o qué proceso puntual
 escribió un dato), decirlo explícitamente en vez de completar con una teoría sin evidencia.
 
+**Antes de grepear a ciegas sobre un tema nuevo, revisar `mapa-codigo-dragonfish.md`** (raíz del
+repo) — puede que ya haya una entrada relacionada (convenciones de nombres, dónde vive una entidad,
+qué archivo arma un cartel de error puntual) de una investigación anterior. Al cerrar esta
+investigación, si se encontró algo reusable (una ruta real, una convención, una cadena de
+llamadas), agregar una entrada nueva ahí — es lo que evita repetir la misma búsqueda larga la
+próxima vez.
+
 ## Paso 4 — Verificar la hipótesis de código contra datos reales
 
 Una lectura de código da una hipótesis, no una confirmación. Antes de darla por buena:
