@@ -294,6 +294,22 @@ perfil existe pero está vacío), tratarlo como si no existiera.
 Si hace falta darlo de alta o reconfigurarlo (elegir instancia SQL, pedir IdCliente/Token, ejecutar
 `agregar-perfil`, rebuild+reload antes de probar) ver skill `configurar-perfil-dragonfish-api`.
 
+### `/Autenticar` — la API exige este paso antes de cualquier otra llamada
+
+Confirmado en la práctica (2026-09-02): mandar `IdCliente`/`Authorization` en el header de
+`consultar`/`crear` **no alcanza por sí solo**, aunque el token no esté vencido — la API devuelve
+`401 Cliente no autenticado` hasta que se llama primero a `POST /Autenticar` con
+`{"IdCliente": "...", "JWToken": "<el mismo Authorization>"}` en el body. Una vez hecho eso, el
+servidor acepta el mismo `Authorization` en llamadas posteriores de cualquier conexión/proceso —
+no hace falta repetirlo en cada request, solo la primera vez por perfil (o de nuevo si el servicio
+de Dragonfish se reinició y perdió esa sesión).
+
+Esto ya lo maneja solo `DragonfishApiMcp` (`AutenticadorDragonfish`, con caché por perfil y
+reintento automático si una llamada posterior vuelve a dar 401) — no hace falta llamarlo a mano.
+Si en el futuro un perfil da 401 con un token confirmado vigente, **no es necesariamente el token**
+— antes de sospechar de las credenciales, confirmar que el propio mecanismo de autenticación no
+tenga un problema nuevo (ej. la API cambió el contrato de `/Autenticar`).
+
 ---
 
 ## GestionBackupsMcp — restauración silenciosa de backups de Dragonfish

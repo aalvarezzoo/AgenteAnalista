@@ -29,7 +29,8 @@ public class DragonfishListarEntidadesTests
             },
         });
         var swagger = new SwaggerCatalog(http);
-        return new DragonfishApiTools(http, cfg, swagger);
+        var autenticador = new AutenticadorDragonfish(http);
+        return new DragonfishApiTools(http, cfg, swagger, autenticador);
     }
 
     private static string SwaggerFixture(int cantidadPaths)

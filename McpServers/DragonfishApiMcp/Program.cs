@@ -77,6 +77,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SwaggerCatalog>(sp =>
     new SwaggerCatalog(sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
 
+// AutenticadorDragonfish también es singleton a propósito: la API de Dragonfish exige un
+// POST /Autenticar antes de aceptar cualquier otra llamada, y ese "ya autenticado" tiene que
+// sobrevivir entre invocaciones de tools (DragonfishApiTools se resuelve nuevo cada vez) —
+// mismo motivo que SwaggerCatalog.
+builder.Services.AddSingleton<AutenticadorDragonfish>(sp =>
+    new AutenticadorDragonfish(sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+
 builder.Services.AddHttpClient<DragonfishApiTools>();
 
 // stdout queda reservado para el protocolo MCP (stdio transport) — todo log va a stderr.

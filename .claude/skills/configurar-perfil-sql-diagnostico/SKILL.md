@@ -36,6 +36,23 @@ perfil antes de que este paso existiera, agregar el `GRANT` a mano en cada base 
 Si el login ya existe y solo hace falta habilitar una base nueva, alcanza con repetir el bloque
 `USE`/`CREATE USER`/`ALTER ROLE` para esa base — no hace falta tocar el `CREATE LOGIN`.
 
+**El permiso es por base, no por login.** Que el login se autentique bien contra la instancia
+(`listar_bases`/`consultar_sql` contra `master` funcionan) no dice nada sobre si tiene acceso a una
+base de negocio puntual — son dos capas separadas de SQL Server. Confirmado en la práctica: un
+perfil que ya venía andando hace rato contra `master` no tenía ningún `DRAGONFISH_*` habilitado
+todavía, porque nunca se había necesitado leer una tabla real hasta ese momento. Si `buscar_en_esquema`/
+`describir_tabla`/`consultar_sql` fallan con `"Cannot open database '<base>' requested by the
+login"`, es exactamente este gap — repetir el bloque `USE <base>`/`CREATE USER`/`ALTER ROLE` para
+esa base puntual (`DRAGONFISH_ZOOLOGICMASTER` incluida — tiene su propio permiso, separado del de
+cualquier base de sucursal).
+
+**Ojo con `@@SERVERNAME` para "confirmar" a qué instancia se conectó un perfil.** Si una máquina se
+renombró después de instalar SQL Server, `@@SERVERNAME` queda con el nombre viejo (viene de
+`sys.servers`, fijo desde la instalación) aunque la máquina y la instancia sean las correctas —
+no es un perfil apuntando a otro lado. Para confirmar la instancia real, usar
+`SERVERPROPERTY('MachineName')` o `SERVERPROPERTY('ComputerNamePhysicalNetBIOS')` en cambio, que sí
+reflejan el nombre actual.
+
 ## Paso 2 — Dar de alta el perfil
 
 ```

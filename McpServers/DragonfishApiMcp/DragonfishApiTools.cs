@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,7 @@ using ModelContextProtocol.Server;
 namespace DragonfishApiMcp;
 
 [McpServerToolType]
-public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiConfig> cfg, SwaggerCatalog swagger)
+public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiConfig> cfg, SwaggerCatalog swagger, AutenticadorDragonfish autenticador)
 {
     /// <summary>Ver el mismo helper en SqlDiagnosticoTools.cs — el SDK de MCP sanitiza cualquier
     /// excepción que no sea McpException a un mensaje genérico antes de devolvérsela al modelo.
@@ -103,9 +104,7 @@ public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiCo
         if (filtros is { Count: > 0 })
             url += "?" + string.Join("&", filtros.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
 
-        using var req = ConHeaders(new HttpRequestMessage(HttpMethod.Get, url), p);
-        using var resp = await http.SendAsync(req);
-        return await LeerRespuesta(resp);
+        return await EnviarAsync(p, () => new HttpRequestMessage(HttpMethod.Get, url));
     });
 
     [McpServerTool(Name = "crear")]
@@ -119,16 +118,43 @@ public sealed class DragonfishApiTools(HttpClient http, IOptions<DragonfishApiCo
         var path = SwaggerCatalog.PathParaEntidad(entidad);
         var url = $"{p.BaseUrl.TrimEnd('/')}{path}";
 
-        using var req = ConHeaders(new HttpRequestMessage(HttpMethod.Post, url), p);
-        req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
-        using var resp = await http.SendAsync(req);
-        return await LeerRespuesta(resp);
+        return await EnviarAsync(p, () => new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+        });
     });
 
     private DragonfishPerfil ResolverPerfil(string perfil) =>
         cfg.Value.Perfiles.TryGetValue(perfil, out var p)
             ? p
             : throw new McpException($"No existe el perfil '{perfil}'. Usá listar_perfiles para ver los configurados.");
+
+    /// <summary>Se asegura de haber llamado a /Autenticar antes de la request real (ver
+    /// AutenticadorDragonfish) y, si igual vuelve 401, asume que el servicio de Dragonfish perdió
+    /// la sesión (ej. se reinició) y reintenta una vez reautenticando — antes de eso no vale la
+    /// pena investigar credenciales, es el mismo síntoma que ya se confundió con un token vencido.</summary>
+    private async Task<string> EnviarAsync(DragonfishPerfil p, Func<HttpRequestMessage> crearRequest)
+    {
+        await autenticador.AsegurarAutenticadoAsync(p);
+
+        var resp = await EnviarUnaVezAsync(p, crearRequest);
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            resp.Dispose();
+            autenticador.Invalidar(p);
+            await autenticador.AsegurarAutenticadoAsync(p);
+            resp = await EnviarUnaVezAsync(p, crearRequest);
+        }
+
+        using (resp)
+            return await LeerRespuesta(resp);
+    }
+
+    private async Task<HttpResponseMessage> EnviarUnaVezAsync(DragonfishPerfil p, Func<HttpRequestMessage> crearRequest)
+    {
+        using var req = ConHeaders(crearRequest(), p);
+        return await http.SendAsync(req);
+    }
 
     private static HttpRequestMessage ConHeaders(HttpRequestMessage req, DragonfishPerfil p)
     {
