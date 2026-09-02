@@ -419,7 +419,10 @@ backups y ADN Implant"). Resumen operativo:
 - **El archivo físico lo crea SQL Server mismo, no Dragonfish**, vía un `RESTORE DATABASE ... WITH
   MOVE ..., REPLACE` nativo. El destino sale de la carpeta de datos default de la instancia SQL
   Server — **no** de `Emp.crutamdf`, que no se consulta en ningún punto de este camino (confirma y
-  extiende lo de arriba: no es que se limpia a vacío, directamente no participa).
+  extiende lo de arriba: no es que se limpia a vacío, directamente no participa). Los pasos previos
+  que intentan poner la base en modo single-user y matar sus procesos son no-ops seguros cuando la
+  base todavía no existe físicamente — no tiran excepción, así que no son un punto de falla real
+  para una base recién dada de alta.
 - La "adecuación" de ADN Implant que corre después es sobre la ESTRUCTURA (reconciliar
   tablas/columnas/índices contra la versión de esta instalación), no sobre crear el archivo — eso
   ya lo hizo el paso anterior.
