@@ -170,21 +170,20 @@ Config de infraestructura (no de negocio de un cliente puntual) vive aparte, en
   `DRAGONFISH_ZOOLOGICMASTER`, no en las bases de sucursal — buscarlos ahí, no en la base de
   negocio del cliente.
 - **Dragonfish tiene más de un mecanismo de resolución de "puesto actual" en distintas partes del
-  código** — confirmado investigando un bug real: `ParametroPuestoSqlServer.ObtenerIdPuesto()`
-  resuelve con caché de sesión y respeta el modo usuario/equipo, pero algunas consultas generadas
-  (ej. `Din_Busqueda5AD.cs`) resuelven el puesto con `Environment.MachineName` directo, ignorando
-  ese modo y esa caché. Al investigar código relacionado a parámetros "por puesto", no asumir que
-  todo el sistema resuelve el puesto de la misma forma — confirmar cuál mecanismo aplica en cada
-  lugar puntual. **Consecuencia práctica a tener en cuenta:** si la instalación usa "modo por
-  usuario" (no por equipo), un parámetro guardado desde la pantalla normal puede terminar escrito
-  en un puesto distinto al que una consulta puntual lee — el síntoma se ve como "el parámetro no
-  hace nada", aunque en realidad sí se guardó, solo que en otro lado.
+  código** — confirmado investigando un bug real: hay un mecanismo "normal" que resuelve con caché
+  de sesión y respeta el modo usuario/equipo, pero algunas consultas generadas resuelven el puesto
+  con `Environment.MachineName` directo, ignorando ese modo y esa caché (cadena de archivos exacta
+  en `mapa-codigo-dragonfish.md`). Al investigar código relacionado a parámetros "por puesto", no
+  asumir que todo el sistema resuelve el puesto de la misma forma — confirmar cuál mecanismo aplica
+  en cada lugar puntual. **Consecuencia práctica a tener en cuenta:** si la instalación usa "modo
+  por usuario" (no por equipo), un parámetro guardado desde la pantalla normal puede terminar
+  escrito en un puesto distinto al que una consulta puntual lee — el síntoma se ve como "el
+  parámetro no hace nada", aunque en realidad sí se guardó, solo que en otro lado.
 - **Los parámetros "por puesto" pueden tener un valor por defecto codificado (`.Default`) que se
   auto-crea recién la primera vez que se lee el parámetro, no al instalar el sistema** — confirmado
-  en `Din_Parametros.prg` (`.Default = .T.` en la definición del parámetro) y en la práctica: en una
-  base recién creada, la fila en `PARAMETROS.PUESTO` no existe hasta que alguien abre la pantalla
-  correspondiente por primera vez. No asumir que un valor "que ya viene así" fue sembrado por un
-  script de instalación.
+  en el código fuente (ver `mapa-codigo-dragonfish.md`) y en la práctica: en una base recién creada,
+  la fila en `PARAMETROS.PUESTO` no existe hasta que alguien abre la pantalla correspondiente por
+  primera vez. No asumir que un valor "que ya viene así" fue sembrado por un script de instalación.
 
 ## Tabla COMPROBANTEV — consideraciones al hacer cambios
 
@@ -367,10 +366,10 @@ automático dentro de `restaurar_backup`.
 Por qué hace falta: la pantalla de restauración de Dragonfish, cuando la base no existe, pregunta
 "¿desea darla de alta?" (MessageBox OK/Cancelar, default Cancelar) y si se confirma, registra la base
 en `Emp` antes de restaurar encima. **Esa lógica vive únicamente en la UI de Windows Forms de
-Dragonfish** (`RestoreRemoteContent.cs`, método `CrearBD`) — confirmado revisando el código fuente
-real (ver "Código fuente de Dragonfish" más arriba) que no hay ningún flag de `ZooBkp.exe -c`
-(consola/silencioso) que la dispare; en consola, si la base no está en `Emp`, el restore se saltea en
-silencio sin excepción (mismo resultado que un no-op disfrazado de éxito).
+Dragonfish** (archivo exacto en `mapa-codigo-dragonfish.md`) — confirmado revisando el código fuente
+real que no hay ningún flag de `ZooBkp.exe -c` (consola/silencioso) que la dispare; en consola, si la
+base no está en `Emp`, el restore se saltea en silencio sin excepción (mismo resultado que un no-op
+disfrazado de éxito).
 
 **Cómo se determina "existe o no" (ambos caminos, UI y consola):** la tabla `Emp` dentro de
 `DRAGONFISH_ZOOLOGICMASTER` — el esquema no está hardcodeado, se resuelve en runtime buscando qué
@@ -389,9 +388,10 @@ Dragonfish (`RECOLETA`, 2026-08-29):
 - `descrip` = igual al código (confirmado: en una creación real, `Descripcion` = `Codigo`)
 - `RutaBack` = `""` (confirmado: siempre vacío en una creación real)
 - `crutamdf` = `"[Ruta predeterminada del servidor SQL]"` — **no** `""`. Este fue un error real: la
-  limpieza a vacío en el código de Dragonfish (`ent_basededatos.PRG`, `AntesDeGrabar`) compara
-  `RutaCompleta` (no `RutaMDF`) contra el default, y `RutaCompleta` solo se usa con motor nativo —
-  nunca con SQL Server, así que ese campo jamás se limpia en una instalación sobre SQL Server.
+  limpieza a vacío en el código de Dragonfish (archivo/método exacto en `mapa-codigo-dragonfish.md`)
+  compara `RutaCompleta` (no `RutaMDF`) contra el default, y `RutaCompleta` solo se usa con motor
+  nativo — nunca con SQL Server, así que ese campo jamás se limpia en una instalación sobre SQL
+  Server.
 - `replica` = `0`
 
 Los campos de auditoría (`FALTAFW`/`HALTAFW`/`UALTAFW`/`BDALTAFW`/`SALTAFW`/`VALTAFW` y sus "MODI")
@@ -410,38 +410,23 @@ posterior de la misma base detectó que ya existía y restauró directo sin volv
 
 ### Qué hace exactamente el restore cuando la base recién se dio de alta (sin archivo físico aún)
 
-Investigado en el código fuente real (ver "Código fuente de Dragonfish" más arriba) a pedido
-explícito, porque no alcanzaba con inferirlo desde afuera — quedó la duda de qué hace el propio
-restaurador/ADN Implant cuando la base está en `Emp` pero todavía no existe como archivo en SQL
-Server:
+Investigado en el código fuente real a pedido explícito, porque no alcanzaba con inferirlo desde
+afuera (cadena completa de archivos/métodos en `mapa-codigo-dragonfish.md`, sección "Restore de
+backups y ADN Implant"). Resumen operativo:
 
-- **El chequeo previo al restore no verifica el archivo físico.** `RestoreBase.EjecutarLogicaRestore`
-  llama a `ValidarBaseDatosDesconectada`, que en `AdnImplantManager` delega en
-  `_gestorSalud.ObtenerBasesDesconectadas(nombre)` — un estado de salud/semáforo interno, no si el
-  `.mdf` existe. Una base recién dada de alta en `Emp` sin flag de "desconectada" pasa este control
-  aunque el archivo todavía no exista — por eso el flujo sigue.
-- **El archivo físico lo crea SQL Server mismo, no Dragonfish.** `SqlDmoWrapper.RestoreDatabase`
-  (`ZooLogicSA.SqlDmoWrapper/SqlDmoWrapper.cs`) arma un `RESTORE DATABASE ... WITH MOVE ..., REPLACE`
-  vía SMO. El destino de los archivos (`MOVE ... TO`) sale de `Server.Information.MasterDBPath`/
-  `MasterDBLogPath` — la carpeta de datos default de la instancia SQL Server, **no** de
-  `Emp.crutamdf` (que no se consulta en ningún punto de este camino — confirma y extiende lo ya
-  documentado más arriba: no es que se limpia a vacío, directamente no participa en el restore).
-  `SetSingleUser`/`KillAllProcesses`, llamados antes del restore, son no-ops seguros sobre una base
-  que todavía no existe (buscan en `Server.Databases`; si no la encuentran, no tiran excepción).
-- **La "adecuación" de ADN Implant es sobre la estructura, no sobre crear el archivo.** Después del
-  restore SQL, `RestoreBase.AdecuarBaseDatosUsandoAdnImplant` → `AdnImplantManager.AdecuarBaseDeDatos`
-  corre el proceso real de ADN Implant (`EjecutarAdnImplant` o
-  `EjecutarAdnImplantConCorreccionCollation` según si el collation de la base restaurada coincide con
-  el de `ZOOLOGICMASTER`) para reconciliar tablas/columnas/índices contra lo que espera la versión de
-  esta instalación — el equivalente a una migración de esquema, no relacionado a crear el archivo
-  (eso ya lo hizo el paso anterior).
-- **Por último**, `ConfigurarOnlineBD` marca la base online en la tabla de semáforo interna (mensaje
-  literal "Base de datos restaurada desde Zoo Logic Backup") y `ControlarSaludBD` corre la validación
-  final. Un fallo en cualquiera de estos dos últimos pasos ocurre DESPUÉS de la frase "Invocando al
+- El chequeo previo al restore **no** verifica si el archivo físico existe — chequea un estado de
+  salud/semáforo interno. Una base recién dada de alta en `Emp` pasa este control igual.
+- **El archivo físico lo crea SQL Server mismo, no Dragonfish**, vía un `RESTORE DATABASE ... WITH
+  MOVE ..., REPLACE` nativo. El destino sale de la carpeta de datos default de la instancia SQL
+  Server — **no** de `Emp.crutamdf`, que no se consulta en ningún punto de este camino (confirma y
+  extiende lo de arriba: no es que se limpia a vacío, directamente no participa).
+- La "adecuación" de ADN Implant que corre después es sobre la ESTRUCTURA (reconciliar
+  tablas/columnas/índices contra la versión de esta instalación), no sobre crear el archivo — eso
+  ya lo hizo el paso anterior.
+- Un fallo en la adecuación o en el control de salud final ocurre DESPUÉS de la frase "Invocando al
   componente SQLDmoWrapper" en el log de ZooBkp (esa frase es del restore SQL puro) — si algún día
-  `RestoreResultado.Evaluar` necesita distinguir "restore SQL ok pero adecuación de ADN Implant
-  falló" de un éxito real de punta a punta, esta es la referencia de dónde buscar esa distinción en
-  el log.
+  hace falta distinguir "restore SQL ok pero adecuación falló" de un éxito de punta a punta, esa es
+  la referencia de dónde buscar esa distinción en el log.
 
 ---
 
