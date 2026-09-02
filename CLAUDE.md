@@ -84,6 +84,36 @@ reporte de arriba) — es un solo incidente, la estructura es plana:
   `Fechac`, `Cerrot`. Da el historial de tareas de ESE incidente puntual sin tener que cruzar con el
   otro reporte.
 
+### Consultar UN bug puntual por número
+
+Mismo criterio que el de incidentes de arriba — uso ocasional, para cuando la persona da un número
+de bug puntual (ej. para revisar qué se cargó, o releer un análisis propio ya asignado).
+
+```powershell
+$url = "http://reportes03/ReportServer?%2FIyD%2FGestion%2FBug&rs:Command=Render&rs:Format=XML&rs:ClearSession=True&Bug=15949"
+$client = New-Object System.Net.WebClient
+$client.UseDefaultCredentials = $true
+$xml = $client.DownloadString($url)
+```
+
+**Namespace XML del reporte:** `Bug`. Estructura plana (un solo bug, sin niveles anidados que
+resolver), pero con más colecciones que el de incidentes:
+
+- **`Details` (una sola fila) — datos principales**: `nombre` (título), `UltProyNombre` (equipo
+  asignado, `"Sin equipo"` si no tiene), `Etapa`, `Estado`, `Severidad`, `Ocurrencia`/`Ocurrencia2`,
+  `temaNombre`, `FuncionalidadRegpor`/`FuncFechaAlta` (quién y cuándo lo cargó), y **`Textbox103`** —
+  el detalle completo del bug (equivalente al `detalle` del reporte de incidentes; acá es donde
+  aparece el texto armado con el formato de `redactar-reporte-de-bug`, incluida la sección
+  "CORRECCIÓN SUGERIDA POR IA" si el bug se cargó a partir de un análisis de este agente).
+- **`Details1` (una fila)** — `Producto1` (producto/build donde se detectó), `TieneTest`.
+- **`Details2` (una fila)** — el vínculo al incidente de origen: `Origen2` (ej. `"Incidente"`),
+  `NumeroOrigen2` (el número de incidente relacionado), `RegPorCli` (cliente), `Numero2`/`Fecha3` de
+  la asignación. Sirve para cruzar bug↔incidente sin tener que pedirlo aparte.
+- **`Details4`/`Details7`/`Details8`, `HistEpicaid2`, `HistoriaCodigo2`** — entidad relacionada, horas
+  cargadas por persona, épica y vínculo a Pivotal Tracker respectivamente. Suelen venir vacíos y son
+  de gestión interna del equipo de desarrollo, no aportan al análisis técnico — no hace falta leerlos
+  salvo que se pida puntualmente algo de seguimiento/horas.
+
 ## Bases de datos SQL Server
 
 Las bases de clientes siempre tienen el prefijo `DRAGONFISH_` seguido del nombre de la base.
