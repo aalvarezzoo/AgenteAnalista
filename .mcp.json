@@ -15,6 +15,10 @@
     "znube-ecommerce": {
       "command": "dotnet",
       "args": ["McpServers/ZNubeEcommerceMcp/bin/Debug/net10.0/ZNubeEcommerceMcp.dll"]
+    },
+    "logs": {
+      "command": "dotnet",
+      "args": ["McpServers/LogsMcp/bin/Debug/net10.0/LogsMcp.dll"]
     }
   }
 }

@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\McpServers\GestionBackupsMcp\GestionBackupsMcp.csproj" />
     <ProjectReference Include="..\..\McpServers\SqlDiagnosticoMcp\SqlDiagnosticoMcp.csproj" />
     <ProjectReference Include="..\..\McpServers\ZNubeEcommerceMcp\ZNubeEcommerceMcp.csproj" />
+    <ProjectReference Include="..\..\McpServers\LogsMcp\LogsMcp.csproj" />
   </ItemGroup>
 
 </Project>
