@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace LogsMcp;
@@ -34,6 +35,13 @@ public static partial class ArchivosLog
             .ToList();
     }
 
+    /// <summary>Estos logs de Dragonfish vienen en Windows-1252, no UTF-8 (confirmado con los bytes
+    /// reales: 0xF3 = 'ó' en "Aplicación") — leerlos con la codificación default (UTF-8) hace que
+    /// cualquier tilde/ñ/° rompa la decodificación (queda como U+FFFD) y con eso el regex de
+    /// cabecera de los parsers nunca matchea nada, sin ningún error visible — devuelve 0 eventos en
+    /// silencio. <see cref="Encoding.Latin1"/> alcanza (no hace falta el paquete de code pages):
+    /// coincide con Windows-1252 en todo el rango de letras acentuadas/ñ/° que usan estos logs, solo
+    /// divergen en 0x80-0x9F (comillas tipográficas, etc.), que no aparece en este formato.</summary>
     public static IEnumerable<string> LeerTodasLasLineas(string carpeta, string nombreBase) =>
-        EncontrarArchivos(carpeta, nombreBase).SelectMany(File.ReadLines);
+        EncontrarArchivos(carpeta, nombreBase).SelectMany(f => File.ReadLines(f, Encoding.Latin1));
 }
