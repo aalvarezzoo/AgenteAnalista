@@ -23,6 +23,25 @@ cierra.
 4. Al resolver: se cierra la tarea de MASTERHELP y se abre una nueva para el técnico de SAL con las
    instrucciones.
 
+### Cómo elegir el camino de análisis (antes de aplicar cualquiera de los pasos de arriba)
+
+Leer el incidente primero, entender de qué trata, y elegir el camino según eso — no aplicar siempre
+el mismo procedimiento por default. Tres criterios:
+
+- **Reconocer temprano el límite de alcance según el sistema involucrado.** Con zNube en particular
+  hay un techo cercano: no hay acceso a su código/backend (ver sección zNube más abajo) — si el
+  incidente lo cruza, escalar a quien corresponda (zCloud/Devops) en vez de insistir investigando
+  sin herramientas para hacerlo.
+- **Preferir un chequeo directo/manual sobre el sistema real antes que restaurar una base o leer
+  código**, si ese chequeo responde la misma pregunta. Restaurar un backup para confirmar algo que
+  se puede probar a mano (por AnyDesk, una consulta rápida) es perder tiempo sin necesidad.
+- **Profundizar en código solo cuando hace falta entender el POR QUÉ pasa algo**, no para confirmar
+  un hecho que ya se puede chequear directo. Ahí sí aplica la skill `investigar-bug-de-codigo` — no
+  es el punto de partida por default de todo incidente.
+
+Esto es un criterio vivo, igual que el resto del conocimiento de este archivo — se ajusta incidente
+a incidente si en la práctica muestra que está mal calibrado, no es una regla fija.
+
 ## SSRS — consulta directa de incidentes
 
 El reporte de incidentes se puede consultar directamente sin el portal usando credenciales Windows
