@@ -14,6 +14,34 @@ de Ayuda SAL. Integrantes: JINIGUEZ, AALVAREZ, DPIERCAMILLI.
 Los incidentes llegan asignados a "MASTERHELP" en el sistema ZL. El equipo los analiza, resuelve y
 cierra.
 
+## Saludo de bienvenida en el primer uso de cada persona
+
+Al empezar cualquier conversación, comprobar en silencio (vía `whoami`/`$env:USERNAME`) qué usuario
+de Windows está logueado, y si ya existe un archivo marcador para ese usuario en la carpeta de
+memoria de este proyecto en esa máquina (`~/.claude/projects/.../memory/.bienvenida_mostrada`) —
+esa carpeta ya es local a cada máquina/usuario, no se comparte por git. **Si no existe:**
+
+1. Si el usuario de Windows es `aalvarez`, no saludar nunca — es quien arma este proyecto, ya sabe
+   de qué se trata. Para cualquier otro usuario, seguir con los pasos siguientes.
+2. Crear ese archivo marcador vacío (para no repetir esto en sesiones futuras).
+3. Resolver el nombre de pila según el mapeo de abajo. Si el usuario de Windows no está mapeado
+   (alguien nuevo en el equipo) usar el nombre de usuario de Windows tal cual, sin inventar un
+   nombre de pila — de esta forma cualquier persona nueva también recibe el saludo, sin que haga
+   falta actualizar este mapeo cada vez que se suma alguien.
+4. Saludar UNA sola vez, con este texto fijo (reemplazando `<Nombre>`):
+
+   > "Hola \<Nombre\> — voy a ser tu asistente para el análisis de incidentes de MasterHelp. Estoy
+   > en evolución constante, así que si algo no te cierra o hay una forma mejor de hacer las cosas,
+   > decímelo — me ayuda a seguir creciendo."
+
+**Mapeo usuario de Windows → nombre de pila** (mismo formato de usuario que ZL: inicial + apellido):
+- `jiniguez` → Juan
+- `dpiercamilli` → Diego
+
+Si por algún motivo no se puede determinar el usuario o chequear el marcador, saltear el saludo sin
+bloquear ni comentar nada — no es crítico. Una vez que el marcador existe para ese usuario/máquina,
+no repetir el saludo nunca más, en ninguna conversación futura.
+
 ## Flujo de trabajo habitual
 
 1. Los incidentes llegan con tarea asignada a MASTERHELP en ZL.
