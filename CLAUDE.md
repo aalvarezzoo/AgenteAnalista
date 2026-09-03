@@ -323,6 +323,31 @@ solo — confirmar si además existe la otra pieza de configuración de la que d
 No asumir cuál de las dos es sin mirar el contexto — confundirlas lleva a investigar en el sistema
 equivocado.
 
+### Hubs y la consulta "Stock y precios entre locales"
+
+Los **Hubs** son servidores que alojan las réplicas en la nube de varios clientes a la vez (no es
+infraestructura dedicada por cliente) — el equipo de DevOps intenta mantenerlos equilibrados, pero
+igual se pueden saturar. Confirmado en la práctica (incidente 1697224, Emintex): Hub 36 con CPU al
+99% y memoria al 81% al momento del análisis, coincidiendo con demoras aleatorias de hasta varios
+minutos en una consulta que cruza con réplicas.
+
+Del menú "Consultas" de Dragonfish, ojo con no confundir estas pantallas parecidas:
+- **"Stock y precios entre locales"** — la única que cruza la base local con las réplicas de la
+  nube (según la configuración de réplicas del cliente).
+- **"Stock online"** — no usa la UI de Dragonfish en absoluto, abre el navegador directo a la
+  sección "Stock Online" de zNube. Requiere tener ese servicio contratado.
+- **"Stock"/"Stock y precios"** — consultas locales, no cruzan con réplicas.
+- **"Control de réplicas"** — pantalla separada, no es lo mismo que "entre locales" aunque estén uno
+  al lado del otro en el mismo menú.
+
+**Heurística de triage:** si la misma consulta, con el mismo artículo, es lenta tanto desde la UI de
+Dragonfish como haciendo la misma consulta directamente desde zNube, el cuello de botella está en
+algo que comparten los dos caminos (el Hub/las réplicas) — no tiene sentido seguir buscando la causa
+en el código puntual de ninguno de los dos lados.
+
+**Gap conocido:** hoy no hay forma de que este agente consulte el estado de un Hub (CPU, memoria,
+logs) directamente — depende de que alguien lo revise a mano en el portal de DevOps.
+
 ---
 
 # MCP servers (`McpServers/`)
