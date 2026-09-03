@@ -2,7 +2,7 @@ using LogsMcp;
 
 namespace AgenteAnalista.Tests;
 
-public class OperacionesLogParserTests
+public class SesionLogParserTests
 {
     private static readonly string[] BloqueValido =
     [
@@ -15,17 +15,17 @@ public class OperacionesLogParserTests
     [Fact]
     public void Parsea_un_bloque_valido()
     {
-        var eventos = OperacionesLogParser.Parsear(BloqueValido).ToList();
+        var eventos = SesionLogParser.Parsear(BloqueValido).ToList();
 
         var e = Assert.Single(eventos);
         Assert.Equal(new DateTime(2026, 9, 2, 9, 6, 36), e.Momento);
         Assert.Equal("9DJ", e.Base);
         Assert.Equal("113339", e.Serie);
         Assert.Equal("WIN-PKPNDAGCSII", e.NombrePc);
-        // "Accion" es todo lo que sigue a la hora tal cual — no se intenta separar el módulo
-        // (ej. "SEGURIDAD") de la acción en sí, porque el formato varía (a veces son 3 campos
+        // "Mensaje" es todo lo que sigue a la hora tal cual — no se intenta separar el módulo
+        // (ej. "SEGURIDAD") del mensaje en sí, porque el formato varía (a veces son 3 campos
         // separados por coma, a veces 2 con "->" en el medio) y separarlos a la fuerza sería frágil.
-        Assert.Equal("SEGURIDAD, Menu -> Consultas -> Stock Y Precios Entre Locales", e.Accion);
+        Assert.Equal("SEGURIDAD, Menu -> Consultas -> Stock Y Precios Entre Locales", e.Mensaje);
     }
 
     [Fact]
@@ -34,8 +34,29 @@ public class OperacionesLogParserTests
         // BloqueValido[..^1] descarta la línea en blanco final — este test prueba justamente que
         // no hace falta esa línea en blanco para que arranque bien el próximo bloque.
         var lineas = BloqueValido[..^1].Concat(BloqueValido[..^1]).ToList();
-        var eventos = OperacionesLogParser.Parsear(lineas).ToList();
+        var eventos = SesionLogParser.Parsear(lineas).ToList();
         Assert.Equal(2, eventos.Count);
+    }
+
+    [Fact]
+    public void Un_solo_encabezado_puede_tener_varias_lineas_de_mensaje()
+    {
+        // Confirmado en la práctica en ZOOSESSION.log: una importación deja varias líneas de
+        // mensaje (uno por paso) bajo el mismo encabezado, sin repetirlo.
+        string[] lineas =
+        [
+            "02/09/2026, Base: REBMAN, Usuario: X@EMINTEX.COM.AR, Aplicación: Zoo Logic Dragonfish Color y Talle, Versión: 16.0004.14964, Serie: 113364",
+            "            Estado del sistema: 2, Nombre de la PC: WIN-PKPNDAGCSII, Usuario de la PC: expooferta, Origen logueo: UI",
+            "    10:44:48,Importación diseño REMITO",
+            "    10:44:48,Base de datos Seleccionada: Base de datos activa",
+            "    10:45:00,La importación del diseño REMITO ha finalizado.",
+        ];
+
+        var eventos = SesionLogParser.Parsear(lineas).ToList();
+        Assert.Equal(3, eventos.Count);
+        Assert.All(eventos, e => Assert.Equal("REBMAN", e.Base));
+        Assert.Equal("Importación diseño REMITO", eventos[0].Mensaje);
+        Assert.Equal("La importación del diseño REMITO ha finalizado.", eventos[2].Mensaje);
     }
 
     [Fact]
@@ -48,12 +69,12 @@ public class OperacionesLogParserTests
             "    09:05:59, SEGURIDAD, Menu -> Base De Datos -> Mmax",
         ];
 
-        var e = Assert.Single(OperacionesLogParser.Parsear(lineas));
+        var e = Assert.Single(SesionLogParser.Parsear(lineas));
         Assert.Equal("", e.Base);
     }
 
     [Fact]
-    public void Formato_de_accion_sin_espacio_despues_de_la_coma_tambien_parsea()
+    public void Formato_de_mensaje_sin_espacio_despues_de_la_coma_tambien_parsea()
     {
         string[] lineas =
         [
@@ -62,8 +83,8 @@ public class OperacionesLogParserTests
             "    16:06:20,DISENOIMPO -> Modificar: CLASEHOOK ART1, CODIGO ART 1.",
         ];
 
-        var e = Assert.Single(OperacionesLogParser.Parsear(lineas));
-        Assert.Equal("DISENOIMPO -> Modificar: CLASEHOOK ART1, CODIGO ART 1.", e.Accion);
+        var e = Assert.Single(SesionLogParser.Parsear(lineas));
+        Assert.Equal("DISENOIMPO -> Modificar: CLASEHOOK ART1, CODIGO ART 1.", e.Mensaje);
     }
 
     [Fact]
@@ -73,9 +94,9 @@ public class OperacionesLogParserTests
         [
             "02/09/2026, Base: 9DJ, Usuario: X@REBMAN.COM.AR, Aplicación: Zoo Logic Dragonfish Color y Talle, Versión: 16.0004.14964, Serie: 113339",
             "            Estado del sistema: 2, Nombre de la PC: WIN-PKPNDAGCSII, Usuario de la PC: x, Origen logueo: UI",
-            // sin línea de acción
+            // sin línea de mensaje
         ];
 
-        Assert.Empty(OperacionesLogParser.Parsear(lineas));
+        Assert.Empty(SesionLogParser.Parsear(lineas));
     }
 }

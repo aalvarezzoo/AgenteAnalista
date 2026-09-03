@@ -14,6 +14,8 @@ public sealed class LogsTools
 
     private const string NombreOperaciones = "operaciones.log";
     private const string NombreBuscador = "OperacionesDelBuscador.log";
+    private const string NombreZooSession = "ZOOSESSION.log";
+    private const string NombreLogErr = "log.err";
 
     /// <summary>Todas las tools pasan por acá. El SDK de MCP sanitiza cualquier excepción que no
     /// sea <see cref="McpException"/> a un mensaje genérico antes de devolvérsela al modelo — mismo
@@ -61,14 +63,34 @@ public sealed class LogsTools
         [Description("Hasta qué fecha/hora incluir, opcional")] string? hasta = null,
         [Description("Filtrar solo acciones que contengan este texto (ej. \"Stock Y Precios Entre Locales\"), opcional")] string? texto = null,
         [Description("Máximo de eventos a devolver (default 200, tope 1000)")] int limite = LimiteDefaultEventos) => Envolver(() =>
+        LeerBloqueSesion(carpeta, NombreOperaciones, desde, hasta, texto, limite));
+
+    [McpServerTool(Name = "leer_zoosession")]
+    [Description("Parsea ZOOSESSION.log (+ rotaciones) y devuelve los eventos (fecha/hora, Base, Usuario, Serie, PC, mensaje) como estructura. Acá se loguean cosas como scripts ejecutados, marcas de entrada/salida e importaciones — no navegación de menú como operaciones.log. Un mismo encabezado puede traer varias líneas de mensaje (ej. los pasos de una importación). Filtra por rango de fecha/hora y/o texto libre.")]
+    public string LeerZooSession(
+        [Description("Carpeta donde está ZOOSESSION.log, ej. C:\\1697224\\Log")] string carpeta,
+        [Description("Desde qué fecha/hora incluir, opcional")] string? desde = null,
+        [Description("Hasta qué fecha/hora incluir, opcional")] string? hasta = null,
+        [Description("Filtrar solo mensajes que contengan este texto, opcional")] string? texto = null,
+        [Description("Máximo de eventos a devolver (default 200, tope 1000)")] int limite = LimiteDefaultEventos) => Envolver(() =>
+        LeerBloqueSesion(carpeta, NombreZooSession, desde, hasta, texto, limite));
+
+    [McpServerTool(Name = "leer_log_err")]
+    [Description("Parsea log.err (+ rotaciones) y devuelve los errores (fecha/hora, Base, Usuario, Serie, PC, detalle con Programa/Procedimiento/Nº Error/Message/Stack tal cual vienen) como estructura. El detalle no se descompone campo por campo — el formato interno varía — pero queda como texto para leer o buscar. Filtra por rango de fecha/hora y/o texto libre (busca en el detalle).")]
+    public string LeerLogErr(
+        [Description("Carpeta donde está log.err, ej. C:\\1697224\\Log")] string carpeta,
+        [Description("Desde qué fecha/hora incluir, opcional")] string? desde = null,
+        [Description("Hasta qué fecha/hora incluir, opcional")] string? hasta = null,
+        [Description("Filtrar solo errores cuyo detalle contenga este texto (ej. \"Nº Error: 1426\"), opcional")] string? texto = null,
+        [Description("Máximo de eventos a devolver (default 200, tope 1000)")] int limite = LimiteDefaultEventos) => Envolver(() =>
     {
         var (fDesde, fHasta) = ParsearRango(desde, hasta);
         limite = Math.Clamp(limite, 1, LimiteMaximoEventos);
 
-        var lineas = ArchivosLog.LeerTodasLasLineas(carpeta, NombreOperaciones);
-        var eventos = OperacionesLogParser.Parsear(lineas)
+        var lineas = ArchivosLog.LeerTodasLasLineas(carpeta, NombreLogErr);
+        var eventos = ErrorLogParser.Parsear(lineas)
             .Where(e => (fDesde is null || e.Momento >= fDesde) && (fHasta is null || e.Momento <= fHasta))
-            .Where(e => texto is null || e.Accion.Contains(texto, StringComparison.OrdinalIgnoreCase))
+            .Where(e => texto is null || e.Detalle.Contains(texto, StringComparison.OrdinalIgnoreCase))
             .OrderBy(e => e.Momento)
             .ToList();
 
@@ -119,7 +141,7 @@ public sealed class LogsTools
     });
 
     [McpServerTool(Name = "linea_de_tiempo")]
-    [Description("Combina operaciones.log, OperacionesDelBuscador.log (y opcionalmente un .evtx) de una carpeta en UNA sola línea de tiempo, ordenada por fecha/hora — para no tener que cruzar a mano varios logs para entender qué pasó y en qué orden. Filtra por rango de fecha/hora, que conviene siempre acotar (basarse en los horarios que menciona el incidente) para no traer de más.")]
+    [Description("Combina operaciones.log, ZOOSESSION.log, log.err, OperacionesDelBuscador.log (y opcionalmente un .evtx) de una carpeta en UNA sola línea de tiempo, ordenada por fecha/hora — para no tener que cruzar a mano varios logs para entender qué pasó y en qué orden. Filtra por rango de fecha/hora, que conviene siempre acotar (basarse en los horarios que menciona el incidente) para no traer de más.")]
     public string LineaDeTiempo(
         [Description("Carpeta con los logs, ej. C:\\1697224\\Log")] string carpeta,
         [Description("Desde qué fecha/hora incluir (recomendado siempre indicarlo)")] string? desde = null,
@@ -132,8 +154,14 @@ public sealed class LogsTools
 
         var eventos = new List<EventoLog>();
 
-        eventos.AddRange(OperacionesLogParser.Parsear(ArchivosLog.LeerTodasLasLineas(carpeta, NombreOperaciones))
-            .Select(e => new EventoLog(e.Momento, "operaciones", e.Accion, $"Base={e.Base}, Usuario={e.Usuario}, Serie={e.Serie}, PC={e.NombrePc}")));
+        eventos.AddRange(SesionLogParser.Parsear(ArchivosLog.LeerTodasLasLineas(carpeta, NombreOperaciones))
+            .Select(e => new EventoLog(e.Momento, "operaciones", e.Mensaje, $"Base={e.Base}, Usuario={e.Usuario}, Serie={e.Serie}, PC={e.NombrePc}")));
+
+        eventos.AddRange(SesionLogParser.Parsear(ArchivosLog.LeerTodasLasLineas(carpeta, NombreZooSession))
+            .Select(e => new EventoLog(e.Momento, "zoosession", e.Mensaje, $"Base={e.Base}, Usuario={e.Usuario}, Serie={e.Serie}, PC={e.NombrePc}")));
+
+        eventos.AddRange(ErrorLogParser.Parsear(ArchivosLog.LeerTodasLasLineas(carpeta, NombreLogErr))
+            .Select(e => new EventoLog(e.Momento, "log.err", $"Error en Base={e.Base}, Serie={e.Serie}", e.Detalle)));
 
         eventos.AddRange(BuscadorLogParser.Parsear(ArchivosLog.LeerTodasLasLineas(carpeta, NombreBuscador))
             .Select(e => new EventoLog(e.Momento, "buscador", e.Mensaje, e.Detalle)));
@@ -162,8 +190,25 @@ public sealed class LogsTools
     {
         if (ArchivosLog.EsArchivoDeLog(nombre, NombreOperaciones)) return "operaciones";
         if (ArchivosLog.EsArchivoDeLog(nombre, NombreBuscador)) return "buscador";
+        if (ArchivosLog.EsArchivoDeLog(nombre, NombreZooSession)) return "zoosession";
+        if (ArchivosLog.EsArchivoDeLog(nombre, NombreLogErr)) return "logErr";
         if (nombre.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase)) return "eventosWindows";
         return "desconocido";
+    }
+
+    private static string LeerBloqueSesion(string carpeta, string nombreArchivo, string? desde, string? hasta, string? texto, int limite)
+    {
+        var (fDesde, fHasta) = ParsearRango(desde, hasta);
+        limite = Math.Clamp(limite, 1, LimiteMaximoEventos);
+
+        var lineas = ArchivosLog.LeerTodasLasLineas(carpeta, nombreArchivo);
+        var eventos = SesionLogParser.Parsear(lineas)
+            .Where(e => (fDesde is null || e.Momento >= fDesde) && (fHasta is null || e.Momento <= fHasta))
+            .Where(e => texto is null || e.Mensaje.Contains(texto, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(e => e.Momento)
+            .ToList();
+
+        return SerializarConTruncado(eventos, limite);
     }
 
     private static (DateTime? desde, DateTime? hasta) ParsearRango(string? desde, string? hasta) =>

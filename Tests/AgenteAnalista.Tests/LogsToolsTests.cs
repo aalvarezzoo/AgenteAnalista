@@ -11,10 +11,14 @@ public class LogsToolsTests
     [InlineData("operaciones.log.10", "operaciones")]
     [InlineData("OperacionesDelBuscador.log", "buscador")]
     [InlineData("OperacionesDelBuscador.log.3", "buscador")]
+    [InlineData("ZOOSESSION.log", "zoosession")]
+    [InlineData("ZOOSESSION.log.1", "zoosession")]
+    [InlineData("log.err", "logErr")]
+    [InlineData("log.err.2", "logErr")]
+    [InlineData("LOG.ERR", "logErr")]
     [InlineData("visor.evtx", "eventosWindows")]
     [InlineData("VISOR.EVTX", "eventosWindows")]
     [InlineData("ZooBkp.log", "desconocido")]
-    [InlineData("log.err", "desconocido")]
     public void Clasifica_el_archivo_segun_su_nombre(string nombre, string tipoEsperado)
     {
         Assert.Equal(tipoEsperado, LogsTools.ClasificarArchivo(nombre));
