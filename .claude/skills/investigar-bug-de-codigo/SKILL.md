@@ -50,9 +50,47 @@ próxima vez.
 Una lectura de código da una hipótesis, no una confirmación. Antes de darla por buena:
 - Buscar en la base real (`buscar_en_esquema`, `consultar_sql`) si existen las condiciones que la
   hipótesis predice (ej.: ¿hay realmente una fila que matchee la condición sospechosa?).
-- Si es posible, conseguir la consulta real ejecutada (ej. con Express Profiler/SQL Profiler) y
-  compararla línea por línea contra lo que dice el código — no asumir que el código fuente sin
-  placeholders resueltos es exactamente lo que corrió.
+- Si es posible, conseguir la consulta real ejecutada (ej. con Express Profiler/SQL Profiler/SQL
+  Server Extended Events) y compararla línea por línea contra lo que dice el código — no asumir que
+  el código fuente sin placeholders resueltos es exactamente lo que corrió.
+- **Si la consulta capturada trae un literal (un valor de un `WHERE`, un código de tipo de
+  comprobante, etc.), cruzarlo contra el dato real de esa columna en la tabla — no dar por sentado
+  que el valor que aparece en el literal es válido solo porque el código "tiene sentido".** Pasó en
+  la práctica (incidente 1669683 / Bug 15734): un trace de Extended Events mostró el literal exacto
+  usado en el `WHERE` de la consulta que rompía (`Comprobante = 'remito'`, en minúscula) y no se
+  cruzó contra cómo está guardado ese dato realmente — cuando la causa real terminó siendo
+  justamente que ese valor no estaba normalizado (el código real lo corrige con `upper()` un par de
+  pasos antes). El literal capturado en un trace es tan buena evidencia como una fila de tabla —
+  tratarlo igual, no solo como confirmación de "esta es la consulta que rompe".
+- **Cuando el síntoma reproduce SOLO contra la base real del cliente y no en ninguna base sintética
+  o de prueba, priorizar explicaciones mecánicas/de dato (formato, mayúsculas/minúsculas,
+  encoding, un valor que no pasó por el normalizador de siempre) por sobre explicaciones de "falta
+  una regla de negocio".** Un bug de lógica de negocio genuino tiende a reproducir en cualquier base
+  con las mismas condiciones; un bug que depende de la base real del cliente para reproducir es la
+  huella típica de un problema de dato/formato específico de esa base, no de una funcionalidad
+  ausente. Si ya se armó una hipótesis de negocio pero el patrón de reproducción no encaja con esa
+  huella, es una señal para dudar de la hipótesis, no para forzarla.
+- **Si esta sesión (o `mapa-codigo-dragonfish.md`) ya tiene documentado un patrón general del
+  codebase (ej. "los códigos de tipo de comprobante se uppercasean agresivamente antes de
+  comparar"), usarlo activamente como checklist al leer código o datos nuevos** — un valor que viola
+  un patrón ya conocido (ej. aparece en minúscula donde todo lo demás se uppercasea) es una señal
+  para perseguir por sí sola, incluso sin una narrativa de negocio que la explique todavía.
+
+## No cortar una pista a mitad de camino
+
+Dos formas concretas en que esto pasó en la práctica (incidente 1669683) y que hay que evitar:
+
+- **Una función/propiedad que se lee (`get`) pero nunca se asigna (`set`) en ningún lado del código
+  real es una anomalía fuerte — agotarla antes de reportarla como "candidato, ¿sigo?".** Encontrar
+  quién más la llama, si hay algo que debería asignarla y no lo hace, si es un intento de fix
+  abandonado. No cortar la búsqueda ahí y devolver la decisión de seguir o no.
+- **Al entrar a un archivo grande guiado por una hipótesis puntual (ej. "esto es sobre
+  descuentos"), no limitar la lectura a las funciones que matchean esa palabra.** Si esas funciones
+  no tocan lo que se esperaba, antes de descartar el archivo entero como pista muerta, barrer el
+  resto del mismo archivo buscando toda asignación a la variable/propiedad sospechosa (grep de la
+  variable, no de la palabra de negocio) — la pista real puede estar unas miles de líneas más abajo,
+  en una función con un nombre que no tiene nada que ver con la hipótesis original (ej. una función
+  específica de un flujo de Picking, en un archivo que se abrió pensando en herencia de descuentos).
 
 ## Paso 5 — Reproducir en una base propia/de prueba antes de dar el bug por confirmado
 

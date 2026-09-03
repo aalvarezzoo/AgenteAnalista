@@ -206,3 +206,50 @@ subiendo la herencia desde `Ent_MovimientoDeStock`:**
 `ESTTRANS`/`ORIGDEST`/`DIRMOV` en `MSTOCK`); `PUESTO.AGRUPABUZON` (definición de buzón, en
 `DRAGONFISH_ZOOLOGICMASTER`); `PUESTO.AGRUPAG`/`AGRUPAGB` (agrupamientos que incluyen buzones —
 vínculo exacto buzón↔origen/destino todavía sin terminar de confirmar).
+
+---
+
+## Descuentos automáticos: dónde se cargan y por qué un `xmlacursor` puede explotar
+
+Investigado a fondo el 2026-09-03 sobre el incidente 1669683 (crash al remitir un Picking generado
+"Nuevo en base a" una Factura) — terminó siendo el Bug 15734, ya corregido. Se documenta acá porque
+el mecanismo (no el bug puntual, que ya está resuelto) es útil para cualquier incidente futuro que
+toque descuentos automáticos, Picking o `ComponenteEnBaseA`.
+
+- **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/Ventas/ent_comprobantedeventas.PRG`**,
+  método `Inicializar()` (línea ~304-307): si `this.TieneDescuentoAutomatico()` (que en la práctica
+  es casi siempre cierto — el propio `oCompDescuentos_Access()` generado instancia el componente sin
+  condición), llama **incondicionalmente, en el momento de construcción de CUALQUIER entidad de este
+  tipo** — factura, remito, lo que sea — a `this.oCompDescuentos.InyectarEntidad(this)` y
+  `this.oCompDescuentos.LlenarColeccionDescuentos()`. Esto corre ANTES de que
+  `ComponenteEnBaseA` copie ningún dato de cabecera de un comprobante origen.
+- **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/Ventas/ComponenteDescuentos.PRG`**,
+  `LlenarColeccionDescuentos()` (línea 24-31): busca en `DescuentoDet` con
+  `Comprobante = alltrim(this.oentidadpadre.ccomprobante)` — el tipo de comprobante de la entidad
+  que se está construyendo — y llama `this.xmlacursor(lcXmlDet, "c_DescuentosDet")` **sin chequear
+  si el XML vino de un resultado de 0 filas**. Si no hay ninguna fila de `DescuentoDet` para ese
+  `Comprobante`, esto crashea con el error nativo de VFP ya conocido (`XMLTOCURSOR`/error #11,
+  `create cursor ... from array` con un array de 0 elementos — ver `zoosession.prg::XmlACursor`).
+  Mismo patrón, mismo riesgo, en `ComprobanteEstaIncluido()` (línea 431-444) un poco más abajo.
+- **El valor de `Comprobante` que se usa en ese filtro, para el caso de un comprobante generado
+  desde un Picking ("Nuevo en base a"), sale de**
+  **`Organic.Feline/Organic.BusinessLogic/CENTRALSS/Felino/Ventas/componenteenbasea.prg`**,
+  función `ObtenerEntidadesIntervinientes()` (línea ~3072-3096): lee `TipoComprobanteOrigen` de una
+  consulta SQL propia (`SentenciaPickingEntidadesIntervinientes()`) y lo guarda en la colección
+  `oEntEnpickings` — que después alimenta `cNombreEntidadAfectada` (línea ~3535) y la instanciación
+  de la entidad afectada. **Bug 15734 era exactamente que este valor no se normalizaba a mayúscula
+  acá antes de guardarlo** — la corrección aplicada (ya presente en el checkout actual, línea 3080)
+  es `lcEntidad = upper( alltrim( TipoComprobanteOrigen ) )` antes de agregarlo a la colección. Sin
+  ese `upper()`, un tipo de comprobante mal casteado terminaba produciendo, río abajo, un filtro de
+  `DescuentoDet` que no matcheaba ninguna fila real — de ahí el crash. Coincide con el patrón general
+  ya anotado arriba (Dragonfish uppercasea agresivamente los códigos de tipo de comprobante antes de
+  comparar — ver también `InstanciarEntidad()`, un poco más abajo en el mismo archivo, línea
+  ~3099-3106, que hace lo mismo antes de instanciar).
+- **Pista sin cerrar, dejada acá por si alguna vez importa:** en el mismo `ent_comprobantedeventas.PRG`
+  hay una función `ObtenerCodigoEntidadDescuento()` (línea 4566-4568) que devuelve
+  `this.cCodigoEntidadDescuento` — una propiedad que **no se asigna en ningún lado del código real**
+  (solo aparece en mocks de test). Se usa únicamente desde `ComprobanteEstaIncluido()` en
+  `ComponenteDescuentos.PRG`. No se llegó a confirmar si es un mecanismo a medio terminar (pensado
+  para resolver el comprobante por el código del documento ORIGEN en vez del propio) o código
+  muerto de otra funcionalidad — no resultó ser parte de la corrección real del Bug 15734, así que
+  quedó sin seguir.
