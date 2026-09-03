@@ -270,6 +270,37 @@ condición.
 
 ---
 
+## zNube — portal de integración cloud
+
+zNube (`znube.com.ar`) es el portal cloud donde se configura la integración de cada cliente: BI,
+Centralizador de clientes, Configuración zNube, Omnicanalidad, Pasarelas de pago, e-Commerce,
+Reportes, Cubos, Snapshots, Gestión de horarios, Autogestión.
+
+Dentro de "Configuración zNube" → **Publicaciones**: una publicación es una definición, del lado de
+la nube, de un conjunto de datos consolidado (un "Set") que se replica hacia la instalación local
+del cliente (`Publicador`/`Origen`/`Set`/`Subscriptor`/`Destino`/`Estado`).
+
+**Dos Sets se autogeneran sin intervención del usuario** (no aparecen como opción en "Nueva
+Publicación"):
+- **Seguridad** — siempre existe, porque el Rol Administrador se crea solo en la nube; según
+  configuración pueden bajar más roles además del Administrador.
+- **Agrupamiento de base de datos** — se genera al crear un grupo de bases de datos en zNube (un
+  grupo sirve para unificar info de varias bases locales en reportes/listados/operaciones que
+  necesitan tratarlas como una sola).
+
+**Ambigüedad a resolver en cada incidente — "publicación" tiene dos significados no relacionados:**
+1. Esta Publicación de zNube (sync de configuración cloud→local) — señales: "grupo", "Set",
+   "roles", "réplica", "sincronizar configuración".
+2. La publicación de un artículo en un canal de venta (Mercado Libre / Tienda Nube — el listado del
+   producto puesto a la venta) — señales: "artículo", "publicar en ML/Tienda Nube", "precio online".
+   Acá aplica `ZNubeEcommerceMcp`, aunque hoy ese MCP cubre trazabilidad de ÓRDENES ya bajadas, no
+   el alta/publicación del artículo en sí.
+
+No asumir cuál de las dos es sin mirar el contexto — confundirlas lleva a investigar en el sistema
+equivocado.
+
+---
+
 # MCP servers (`McpServers/`)
 
 El repo trae cinco servidores MCP: `ZlApiMcp`, `DragonfishApiMcp`, `GestionBackupsMcp`,
