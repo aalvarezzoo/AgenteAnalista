@@ -281,12 +281,36 @@ la nube, de un conjunto de datos consolidado (un "Set") que se replica hacia la 
 del cliente (`Publicador`/`Origen`/`Set`/`Subscriptor`/`Destino`/`Estado`).
 
 **Dos Sets se autogeneran sin intervención del usuario** (no aparecen como opción en "Nueva
-Publicación"):
-- **Seguridad** — siempre existe, porque el Rol Administrador se crea solo en la nube; según
-  configuración pueden bajar más roles además del Administrador.
+Publicación"), pero ninguno de los dos se crea solo por darse la condición "obvia" — a los dos les
+hace falta además otra condición, no siempre evidente, confirmada en la práctica en los incidentes
+1696941/1697000:
+
 - **Agrupamiento de base de datos** — se genera al crear un grupo de bases de datos en zNube (un
   grupo sirve para unificar info de varias bases locales en reportes/listados/operaciones que
-  necesitan tratarlas como una sola).
+  necesitan tratarlas como una sola), **pero solo si además existe otra publicación cuyo Set tenga
+  la posibilidad de usar filtros** (los filtros son justamente donde, si se quisiera, se podría
+  seleccionar un grupo). No hace falta que esa otra publicación esté efectivamente filtrada por el
+  grupo creado ni por ningún grupo — alcanza con que el Set elegido soporte filtros, tenga o no un
+  filtro cargado. Si no existe ninguna publicación de un Set que soporte filtros, la de Agrupamiento
+  **nunca** se crea — no es un bug ni un problema intermitente, es el disparador real. El orden de
+  creación no importa: da lo mismo crear primero el grupo y después esa publicación, o al revés.
+- **Seguridad** — se genera recién cuando existe un Rol en zNube que tenga configurado algo de
+  **Dragonfish** (no alcanza con marcar permisos puramente de zNube-portal, ej. "Reportes" o
+  "Cubos") — al dar de alta un Rol (`Configuración zNube` → `Roles` → `Nuevo Rol`) hay secciones
+  separadas "Bases de datos Dragonfish Color y Talle"/"Bases de datos Lince" y, más abajo, una
+  sección completa **"Dragonfish Color y Talle"** con los módulos reales del sistema (Sistema, Altas,
+  Ventas, Compras, Comercio exterior, Fondos, Contabilidad, Ecommerce, Toma de inventario,
+  Producción, Consultas, Herramientas, Seguridad, Configuración, Operaciones Adicionales) — recién si
+  el rol tiene algo tildado ahí se dispara la publicación. Un cliente puede tener roles de zNube
+  hace tiempo y aun así no tener nunca la publicación de Seguridad, si ninguno de esos roles tocó
+  específicamente permisos de Dragonfish.
+
+Mismo patrón que ya está documentado del lado de Dragonfish con `PARAMETROS.PUESTO` (un parámetro
+"por puesto" recién se crea la primera vez que alguien lo LEE, no al instalar) — en este ecosistema
+es habitual que algo "de sistema" se cree recién ante la primera dependencia real que lo necesita,
+no en el momento que parece el disparador obvio. Al investigar un incidente de "esta publicación
+nunca se generó", no asumir que el evento aparente (crear el grupo, crear el rol) alcanza por sí
+solo — confirmar si además existe la otra pieza de configuración de la que depende.
 
 **Ambigüedad a resolver en cada incidente — "publicación" tiene dos significados no relacionados:**
 1. Esta Publicación de zNube (sync de configuración cloud→local) — señales: "grupo", "Set",
