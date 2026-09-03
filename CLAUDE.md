@@ -66,6 +66,16 @@ el mismo procedimiento por default. Tres criterios:
 - **Profundizar en código solo cuando hace falta entender el POR QUÉ pasa algo**, no para confirmar
   un hecho que ya se puede chequear directo. Ahí sí aplica la skill `investigar-bug-de-codigo` — no
   es el punto de partida por default de todo incidente.
+- **Una condición estructural que ya existía antes de que el cliente reportara el problema no
+  alcanza para explicarlo, por sí sola.** Si el cliente venía funcionando bien con el mismo
+  contexto (mismas terminales, mismo uso, misma infraestructura de fondo) y ahora reporta algo
+  nuevo, esa condición estructural (ej. una máquina compartida con otras instalaciones) puede ser
+  parte del cuadro, pero no es la causa de que haya empezado a fallar recién ahora — algo tuvo que
+  cambiar. Confirmado en la práctica en el incidente 1697224 (Emintex): encontrar evidencia de
+  contención de recursos en una máquina compartida no explica por qué la lentitud es nueva, si esa
+  máquina ya se compartía de antes. Cuando se juzgue necesario, relevar con el cliente si hubo
+  cambios recientes de su lado (red, proveedor de internet, equipamiento nuevo) antes de asumir que
+  la causa está solamente del lado de Dragonfish/la infraestructura ya conocida.
 
 Esto es un criterio vivo, igual que el resto del conocimiento de este archivo — se ajusta incidente
 a incidente si en la práctica muestra que está mal calibrado, no es una regla fija.
