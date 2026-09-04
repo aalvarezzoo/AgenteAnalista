@@ -171,6 +171,32 @@ resolver), pero con más colecciones que el de incidentes:
   de gestión interna del equipo de desarrollo, no aportan al análisis técnico — no hace falta leerlos
   salvo que se pida puntualmente algo de seguimiento/horas.
 
+### Consultar UN requerimiento puntual por número
+
+Mismo criterio que incidente/bug — uso ocasional, típicamente para releer una query ya validada y
+ejecutada antes (ej. un pedido de UPDATE masivo sobre la base de un cliente), y así reusarla en vez
+de reconstruirla de cero. **Ojo, a diferencia de Bug/Incidente el parámetro NO se llama igual que el
+reporte** — es `Numero`, no `Requerimiento` (confirmado provocando el error de SSRS a propósito:
+pedir el reporte sin parámetros devuelve el nombre real que espera).
+
+```powershell
+$url = "http://reportes03/ReportServer?%2FIyD%2FGestion%2FRequerimiento&rs:Command=Render&rs:Format=XML&rs:ClearSession=True&Numero=18887"
+$client = New-Object System.Net.WebClient
+$client.UseDefaultCredentials = $true
+$xml = $client.DownloadString($url)
+```
+
+**Namespace XML del reporte:** `Requerimiento`. Estructura plana, un solo requerimiento:
+
+- **`Req_Número` (una sola fila) — datos principales**: `nombre` (título), **`Textbox103`** — el
+  detalle completo, típicamente con las queries SQL exactas que se pidió/aprobó correr (bloque
+  `-- comentario` + `UPDATE ...`), `Textbox123` (estado, ej. `"Aprobado"`), `RespCom` (responsable
+  comercial que aprobó), `Req_Alta1`/`FuncionalidadRegpor` (cuándo y quién lo cargó).
+- **`Tablix13` → `Details4`** — el vínculo al incidente de origen: `Comprobante3="Incidente"`,
+  `Numero2` (el número de incidente relacionado) — mismo patrón que `Details2` en el reporte de Bug.
+- **`Tablix10`/`Tablix14`** — historial de estados/asignaciones internas del equipo de desarrollo, no
+  aporta al análisis técnico salvo que se pida puntualmente seguimiento.
+
 ## Bases de datos SQL Server
 
 Las bases de clientes siempre tienen el prefijo `DRAGONFISH_` seguido del nombre de la base.
