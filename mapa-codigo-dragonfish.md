@@ -85,6 +85,53 @@ exactamente el restore..."). Cadena completa, en orden de ejecución real:
 método `CrearBD` (el cartel "¿desea darla de alta?"). La consulta/columnas de `Emp` las resuelve
 `Common.Core/ZooLogicSA.Core.BasesDeDatos/ProveedorBD.cs`.
 
+### Restore de snapshots de zNube (`.exe`/`.zsnp`) — mecanismo distinto al de un `.zip`/`.bak`
+
+Investigado a fondo el 2026-09-04, a raíz del incidente 1697789 (Iair Gabriel Tawil, base "I AM"),
+para confirmar contra código una hipótesis que se había validado solo empíricamente en
+`GestionBackupsMcp` (ver `NombreBackup` en `GestionBackupsTools.cs`).
+
+- **El enrutamiento es por extensión del archivo pasado en `-f`, explícito y a propósito** —
+  `Components.RecoveryManager/ZooLogicSA.RecoveryManager.Core/Managers/RestoreBase.cs:793-831`
+  (`GetRestoreMode`): `.zip`→`RestoreMode.RecoveryTool`, `.exe`→`RestoreMode.Snapshot`,
+  `.zsnp`→`RestoreMode.SnapshotFile`, `.bak`→`RestoreMode.BackupSQLSever`. El parser de argumentos
+  (`.../ZooLogicSA.RecoveryManager.ZooBkp/Manager/ZooBkpArgumentsParser.cs:90-108`,
+  `TryParseBackupFilePath`) no valida nada de extensión — solo `File.Exists`.
+- **`.exe` (snapshot de zNube) usa una estrategia dedicada, no "se abre como zip sin más":**
+  `.../Lanzadores/Estrategias/RestoreFromSnapshot.cs`. Extrae el `.exe` (línea 89,
+  `_zipManager.Extract`), dentro encuentra `Snapshot.zsnp` (constante `SNAPSHOT_COMPRESS_DATA`,
+  línea 28) y lo vuelve a extraer (zip anidado). El restore en sí (`ProcessRestore`, líneas
+  128-141) **no usa `RESTORE DATABASE` nativo de SQL Server** — reconstruye la base desde cero:
+  `CreateDatabase` → `RestoreSchema` (scripts `.sql` extraídos) → `ExtendTableProperties` →
+  `ValidateConstraints` → `RestoreBulkCopyProcessMethod` (`SqlBulkInsert`). Si el contenido
+  extraído no tiene la forma esperada, tira `InvalidFileException` (línea ~319) — sí hay
+  validación real, no es un pasaje ciego.
+- **Por qué el `.exe` "funciona igual que un zip" a nivel de extracción:**
+  `.../ZooLogicSA.ZipWrapper/ZipWrapperBase.cs:17` invoca `7za.exe` (7-Zip standalone) por línea de
+  comandos — 7-Zip abre por estructura interna (End of Central Directory), no por extensión, así
+  que puede extraer el payload zip de un SFX de DotNetZip sin que le importe el nombre `.exe`. Pero
+  esto es un detalle de implementación de la extracción, no evidencia de que "no hay lógica de
+  snapshot" — el enrutamiento a esta estrategia sí es explícito (punto anterior).
+- **Contraste — el `.zip`/`.bak` clásico sí usa el `RESTORE DATABASE` nativo:**
+  `.../Lanzadores/Estrategias/RestoreFromRecovery.cs:50-67` llama a
+  `_sqlDmoWrapper.RestoreDatabase(...)` (o `RestoreMasterDatabase`) — el mismo mecanismo SMO
+  documentado arriba para el flujo normal de `GestionBackupsMcp`.
+- **Paso de adecuación posterior exclusivo de snapshots:** el bulk copy no recrea PKs/índices como
+  sí lo hace un `RESTORE DATABASE` nativo, así que ADNImplant detecta automáticamente (por ausencia
+  de `zoologic.PropiedadesRep`/`Parametros.Sucursal`) que la base vino de un snapshot —
+  `ADNImplant.AdnImplant/ZooLogicSA.AdnImplant.Sql/ModosProceso/BasesDeDatos/ModoRestauracionSnapshot.cs:31-65`
+  — y dispara `Tareas/Ubicacion/TareaPrepararBDSnapshot.cs` (líneas 41-57:
+  `EliminarIndicesQueCambiaron` + `CrearPKTabla`) para regenerarlos. Este paso no ocurre en un
+  restore clásico de `.zip`/`.bak`.
+- **El flag `-snapshot` de la CLI no decide el mecanismo:** solo afecta metadata de auditoría
+  (`RecoveryProcessBase.cs:91-94`, "Restauración de Snapshot"). El enrutamiento real es 100% por la
+  extensión del archivo.
+- **`zNube.RestoreSnapshot.exe` (la GUI propia) no aparece en ningún punto de este código** — no es
+  invocada ni requerida por `RestoreFromSnapshot`; pertenece al lado zNube, fuera de este repo.
+- **Riesgo a tener en cuenta:** cualquier archivo con extensión `.exe` pasado por `-f` entra a este
+  modo, sea o no un snapshot real de zNube — si no tiene la estructura esperada falla con
+  `InvalidFileException`, no con un error genérico de zip corrupto.
+
 ---
 
 ## Conexión SQL manual y `dataconfig.ini` (pantalla clásica VFP)

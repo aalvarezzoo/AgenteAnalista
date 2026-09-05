@@ -9,24 +9,59 @@ using ModelContextProtocol.Server;
 namespace GestionBackupsMcp;
 
 /// <summary>
-/// Nombre de backup: "&lt;fecha&gt;-&lt;hora&gt;-&lt;frecuencia&gt;-&lt;NombreBase&gt;-&lt;version&gt;.zip"
-/// (ej. "20260827-110000-Jueves-DRAGONFISH_DEMO-16.0004.14964.zip"). NombreBase ya trae el
-/// prefijo DRAGONFISH_ si corresponde (confirmado contra ADNIMPLANT..BasesDeDatos) — no agregarlo.
+/// Dos formatos de backup reconocidos, ambos se le pasan igual a ZooBkp.exe (mismo argumento -f) —
+/// pero adentro ZooBkp los restaura con mecanismos completamente distintos, confirmado leyendo el
+/// código fuente real (`RestoreBase.GetRestoreMode` en
+/// ZooLogicSA.RecoveryManager.Core\Managers\RestoreBase.cs:793 — enruta explícitamente por
+/// extensión del archivo; ver detalle completo en mapa-codigo-dragonfish.md, sección "Restore de
+/// snapshots de zNube"):
+/// - **Backup de ZooBkp** (`.zip`): "&lt;fecha&gt;-&lt;hora&gt;-&lt;frecuencia&gt;-&lt;NombreBase&gt;-&lt;version&gt;.zip"
+///   (ej. "20260827-110000-Jueves-DRAGONFISH_DEMO-16.0004.14964.zip"). NombreBase ya trae el
+///   prefijo DRAGONFISH_ si corresponde (confirmado contra ADNIMPLANT..BasesDeDatos) — no agregarlo.
+///   Se restaura con `RESTORE DATABASE` nativo de SQL Server (`RestoreFromRecovery.cs` →
+///   `SqlDmoWrapper.RestoreDatabase`).
+/// - **Snapshot de zNube** (`.exe`): "&lt;RazonSocial_con_guiones_bajos&gt;_&lt;NombreBase&gt;_&lt;yyyyMMddHHmmss&gt;.exe"
+///   (ej. "Iair_Gabriel_Tawil_I_AM_20260903112430.exe" para la base "I AM"). Es un autoextraíble
+///   (DotNetZip SFX firmado por Zoo Logic) que adentro trae un `Snapshot.zsnp`, y no hace falta la
+///   herramienta de restore propia (`zNube.RestoreSnapshot.exe`, GUI) — ZooBkp.exe reconoce la
+///   extensión `.exe` a propósito y usa una estrategia dedicada (`RestoreFromSnapshot.cs`) que NO
+///   es un `RESTORE DATABASE`: reconstruye la base desde cero (crea esquema desde scripts .sql
+///   extraídos + bulk copy de datos), y por eso dispara después un paso de adecuación exclusivo en
+///   ADNImplant que regenera PKs/índices (el bulk copy no los recrea solo). A diferencia del
+///   backup de ZooBkp, el nombre de la base ACÁ NO lleva el prefijo DRAGONFISH_ — por eso el
+///   matching lo saca antes de comparar, para que el llamador pueda seguir pasando el nombre con o
+///   sin prefijo indistintamente.
 /// </summary>
 public static partial class NombreBackup
 {
     [GeneratedRegex(@"^\d{8}-\d{6}-[^-]+-(?<base>.+)-\d+\.\d+\.\d+\.zip$", RegexOptions.IgnoreCase)]
-    public static partial Regex Patron();
+    public static partial Regex PatronZip();
 
-    /// <summary>Elige, entre los .zip de una carpeta, el único cuyo nombre de base coincida con
-    /// <paramref name="nombreBase"/> — nunca toca otros .zip que pueda haber al lado (ej. un backup
-    /// de DRAGONFISH_ZOOLOGICMASTER en la misma carpeta). Extraído a función pura para poder
-    /// testear esta regla sin tocar el sistema de archivos real.</summary>
-    public static string? ElegirZip(IEnumerable<string> zips, string nombreBase) =>
-        zips.FirstOrDefault(z =>
+    /// <summary>Es un snapshot de zNube cuyo nombre de base coincide con <paramref name="nombreBase"/>
+    /// (con o sin el prefijo DRAGONFISH_, y con espacios o guiones bajos indistintamente).</summary>
+    public static bool EsSnapshotDe(string nombreArchivo, string nombreBase)
+    {
+        var sinPrefijo = nombreBase.StartsWith("DRAGONFISH_", StringComparison.OrdinalIgnoreCase)
+            ? nombreBase["DRAGONFISH_".Length..]
+            : nombreBase;
+        var conGuiones = sinPrefijo.Replace(' ', '_');
+        var patron = $@"^.+_{Regex.Escape(conGuiones)}_\d{{14}}\.exe$";
+        return Regex.IsMatch(nombreArchivo, patron, RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>Elige, entre los archivos de una carpeta (.zip de ZooBkp o .exe de snapshot de
+    /// zNube), el único cuyo nombre de base coincida con <paramref name="nombreBase"/> — nunca toca
+    /// otro archivo que pueda haber al lado (ej. un backup de DRAGONFISH_ZOOLOGICMASTER en la misma
+    /// carpeta). Extraído a función pura para poder testear esta regla sin tocar el sistema de
+    /// archivos real.</summary>
+    public static string? ElegirArchivo(IEnumerable<string> archivos, string nombreBase) =>
+        archivos.FirstOrDefault(a =>
         {
-            var m = Patron().Match(Path.GetFileName(z));
-            return m.Success && string.Equals(m.Groups["base"].Value, nombreBase, StringComparison.OrdinalIgnoreCase);
+            var nombre = Path.GetFileName(a);
+            var m = PatronZip().Match(nombre);
+            if (m.Success && string.Equals(m.Groups["base"].Value, nombreBase, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return EsSnapshotDe(nombre, nombreBase);
         });
 }
 
@@ -113,10 +148,10 @@ public sealed class GestionBackupsTools
     };
 
     [McpServerTool(Name = "restaurar_backup")]
-    [Description("Restaura de forma silenciosa (sin abrir ninguna ventana) el backup de UNA base puntual, buscando en la carpeta dada el .zip cuyo nombre de base coincida. Restaura SOLO la base pedida — si la carpeta tiene backups de otras bases, no se tocan. Antes de restaurar chequea si la base ya está registrada en Dragonfish (tabla Emp): si no lo está, NO restaura — hace falta darla de alta primero con 'dar_alta_base_para_restore' (y confirmar explícitamente con la persona antes de llamarlo). Excepción: ADNIMPLANT y ZOOLOGICMASTER nunca pasan por este chequeo — no son bases de tipo Sucursal, Dragonfish no las da de alta en Emp.")]
+    [Description("Restaura de forma silenciosa (sin abrir ninguna ventana) el backup de UNA base puntual, buscando en la carpeta dada el archivo cuyo nombre de base coincida — un .zip de ZooBkp o un .exe autoextraíble de snapshot de zNube (ej. \"Cliente_NombreBase_20260903112430.exe\"), los dos se restauran igual, pasándolos tal cual a ZooBkp.exe. Restaura SOLO la base pedida — si la carpeta tiene backups/snapshots de otras bases, no se tocan. Antes de restaurar un .zip de ZooBkp chequea si la base ya está registrada en Dragonfish (tabla Emp): si no lo está, NO restaura — hace falta darla de alta primero con 'dar_alta_base_para_restore' (y confirmar explícitamente con la persona antes de llamarlo). Excepciones que nunca pasan por este chequeo: ADNIMPLANT y ZOOLOGICMASTER (no son bases de tipo Sucursal, Dragonfish no las da de alta en Emp), y cualquier snapshot de zNube (.exe) — restaurar un snapshot no pregunta por el alta en Emp, a diferencia de un .zip.")]
     public string RestaurarBackup(
-        [Description("Carpeta donde buscar el .zip de backup, ej. C:\\1690552")] string carpeta,
-        [Description("Nombre exacto de la base a restaurar (como aparece en el nombre del .zip), ej. DRAGONFISH_NCENTRO")] string nombreBase)
+        [Description("Carpeta donde buscar el backup/snapshot, ej. C:\\1690552")] string carpeta,
+        [Description("Nombre exacto de la base a restaurar (como aparece en el nombre del archivo, con o sin el prefijo DRAGONFISH_), ej. DRAGONFISH_NCENTRO o I AM")] string nombreBase)
     {
         // Envuelve TODO el cuerpo, no solo el chequeo de Emp — Directory.GetFiles y lo que
         // dispare RestaurarUno (WaitForExit/lectura de log) también pueden tirar, y sin este
@@ -127,14 +162,21 @@ public sealed class GestionBackupsTools
             if (!Directory.Exists(carpeta))
                 return $"La carpeta '{carpeta}' no existe.";
 
-            var zips = Directory.GetFiles(carpeta, "*.zip");
-            var zip = NombreBackup.ElegirZip(zips, nombreBase);
+            var candidatos = Directory.GetFiles(carpeta, "*.zip").Concat(Directory.GetFiles(carpeta, "*.exe"));
+            var zip = NombreBackup.ElegirArchivo(candidatos, nombreBase);
 
             if (zip is null)
-                return $"No se encontró ningún .zip para la base '{nombreBase}' en '{carpeta}'. (Otros .zip que pueda haber en la carpeta no se tocan salvo que se pidan explícitamente.)";
+                return $"No se encontró ningún backup (.zip) ni snapshot (.exe) para la base '{nombreBase}' en '{carpeta}'. (Otros archivos que pueda haber en la carpeta no se tocan salvo que se pidan explícitamente.)";
 
             var codigo = EmpHelper.LimpiarCodigo(nombreBase);
 
+            // Confirmado en el código fuente de Dragonfish (2026-09-04, ver mapa-codigo-dragonfish.md,
+            // sección "Restore de snapshots de zNube"): en modo consola, TANTO para .zip como para
+            // .exe, ZooBkp arma la lista de bases a restaurar consultando Emp — si la base pedida no
+            // está ahí, la restauración se salta en silencio (sin excepción) reportando éxito igual.
+            // Un snapshot NO está exento de este chequeo — probado empíricamente: restaurar un
+            // snapshot de una base no registrada en Emp no creó ninguna base real, aunque el log de
+            // ZooBkp dijera "finalizado con éxito".
             if (!BasesSinChequeoDeEmp.Contains(codigo))
             {
                 try
@@ -155,7 +197,15 @@ public sealed class GestionBackupsTools
                 }
             }
 
-            return RestaurarUno(zip, nombreBase);
+            // El -bdr que espera ZooBkp en modo consola se compara contra epath en Emp, que
+            // siempre lleva el prefijo DRAGONFISH_ (confirmado en ProveedorBD.cs — .Nombre sale de
+            // epath, no de empcod) — así que para cualquier base que sí pase por Emp, se normaliza
+            // acá, sin importar si el llamador pasó el nombre corto o con prefijo. ADNIMPLANT y
+            // ZOOLOGICMASTER (que no están en Emp) se dejan tal cual llegó nombreBase, sin tocar un
+            // comportamiento ya probado que no pasa por este chequeo.
+            var bdr = BasesSinChequeoDeEmp.Contains(codigo) ? nombreBase : $"DRAGONFISH_{codigo}";
+
+            return RestaurarUno(zip, nombreBase, bdr);
         }
         catch (Exception ex)
         {
@@ -243,7 +293,7 @@ public sealed class GestionBackupsTools
             $"No se encontró 'Servidor=' en la sección [SQL] de '{dataconfigPath}'. Definí la variable de entorno ZOOBKP_SQL_INSTANCE manualmente.");
     }
 
-    private static string RestaurarUno(string zipPath, string nombreBase)
+    private static string RestaurarUno(string zipPath, string nombreBase, string bdr)
     {
         var nombreArchivo = Path.GetFileName(zipPath);
 
@@ -265,7 +315,7 @@ public sealed class GestionBackupsTools
         psi.ArgumentList.Add("-r");
         psi.ArgumentList.Add("-hp");
         psi.ArgumentList.Add($"-f{zipPath}");
-        psi.ArgumentList.Add($"-bdr{nombreBase}");
+        psi.ArgumentList.Add($"-bdr{bdr}");
         psi.ArgumentList.Add("-ejecutormantenimiento");
 
         // Process.Start puede tirar (Win32Exception por permisos, etc.) además de devolver null —
